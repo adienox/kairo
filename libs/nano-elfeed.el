@@ -96,7 +96,7 @@
   (setq-local line-spacing 0)
 
   (setq hl-line-overlay-priority 100)
-  (setq cursor-type nil)
+  (setq evil-normal-state-cursor '(bar . 0))
   (hl-line-mode t)
   (setq cursor-type nil))
 
@@ -113,11 +113,13 @@
 (defun nano-elfeed-next-entry ()
   (interactive)
   (setq-local cursor-type nil)
+  (setq-local evil-normal-state-cursor '(bar . 0))
   (text-property-search-forward 'elfeed-entry t))
 
 (defun nano-elfeed-prev-entry ()
   (interactive)
   (setq-local cursor-type nil)
+  (setq-local evil-normal-state-cursor '(bar . 0))
   (text-property-search-backward 'elfeed-entry t))
 
 (defun nano-elfeed-show-next ()

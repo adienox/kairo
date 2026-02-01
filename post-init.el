@@ -4,6 +4,10 @@
 
 (load custom-file 'noerror 'no-message)
 
+(use-package exec-path-from-shell
+  :hook
+  (on-first-input . exec-path-from-shell-initialize))
+
 (defvar nox/authinfo-file (file-name-concat minimal-emacs-user-directory "authinfo.gpg")
   "Authinfo file")
 
@@ -15,8 +19,7 @@
   (("C-?" . dictionary-lookup-definition))
   :init
   (pixel-scroll-precision-mode 1)
-  (global-hl-line-mode 1)
-  (electric-indent-mode -1)    ;; Disable weird emacs indenting.
+  ;;(global-hl-line-mode 1)
   (indent-tabs-mode -1)        ;; Disable the use of tabs for indentation.
   (xterm-mouse-mode 1)         ;; Enable mouse support in terminal mode.
   (file-name-shadow-mode 1)    ;; Enable shadowing of filenames for clarity.
@@ -173,8 +176,8 @@
 
 (nox/prog-keys
   "c d"   '(:ignore t :wk "[D]irenv")
-  "c d a" '(envrc-allow :wk "Allow environment")
-  "c d r" '(envrc-reload :wk "Reload environment"))
+  "c d a" '(envrc-allow :wk "[A]llow environment")
+  "c d r" '(envrc-reload :wk "[R]eload environment"))
 
 (nox/leader-keys
   "d"   '(:ignore t :wk "[D]ired")
@@ -247,6 +250,8 @@
 (nox/leader-keys
   "o n"   '(:ignore t :wk "[N]otes")
   "o n f" '(nox/denote-search :wk "[F]ind note")
+  "o n r" '(denote-explore-random-note :wk "[R]andom note")
+  "o n i" '(denote-explore-isolated-files :wk "[I]solated notes")
   "o n R" '(denote-rename-file :wk "[R]ename note")
   "o n m" '(denote-toggle-metadata :wk "[M]etadata toggle")
   "o n l" '(denote-link-or-create :wk "[L]ink note")
@@ -265,9 +270,9 @@
 (nox/leader-keys
   "p"   '(:ignore t :wk "[P]roject")
   "SPC" '(projectile-find-file :wk "Find file in project")
-  "p r" '(projectile-remove-known-project :wk "Remove Project")
-  "p c" '(projectile-compile-project :wk "Compile Project")
-  "p p" '(+switch-or-make-project :wk "Switch Project"))
+  "p r" '(projectile-remove-known-project :wk "[R]emove Project")
+  "p c" '(projectile-compile-project :wk "[C]ompile Project")
+  "p s" '(+switch-or-make-project :wk "[S]witch Project"))
 
 (nox/leader-keys
   "s"   '(:ignore t :wk "[S]earch")
@@ -291,10 +296,12 @@
 
 (nox/leader-keys
   "TAB"   '(:ignore t :wk "Workspaces")
-  "TAB TAB" '(+list-workspaces :wk "Next Workspace")
+  "TAB TAB" '(+list-workspaces :wk "List Workspaces")
   "TAB [" '(persp-prev :wk "Previous Workspace")
   "TAB ]" '(persp-next :wk "Next Workspace")
   "TAB d" '((lambda () (interactive) (persp-kill (persp-name (persp-curr)))) :wk "Delete workspace")
+  "TAB m" '((lambda () (interactive) (pop-to-buffer "*Messages*")) :wk "Messages buffer")
+  "TAB w" '((lambda () (interactive) (pop-to-buffer "*Warnings*")) :wk "Warnings buffer")
   "TAB n" '(persp-switch :wk "New Workspace"))
 
 (nox/leader-keys
@@ -450,6 +457,31 @@
   (evil-next-visual-line)
   (recenter))
 
+(defun ar/org-insert-link-dwim ()
+  "Like `org-insert-link' but with personal dwim preferences."
+  (interactive)
+  (let* ((point-in-link (org-in-regexp org-link-any-re 1))
+         (clipboard-url (when (string-match-p "^http" (current-kill 0))
+                          (current-kill 0)))
+         (region-content (when (region-active-p)
+                           (buffer-substring-no-properties (region-beginning)
+                                                           (region-end)))))
+    (cond ((and region-content clipboard-url (not point-in-link))
+           (delete-region (region-beginning) (region-end))
+           (insert (org-make-link-string clipboard-url region-content)))
+          ((and clipboard-url (not point-in-link))
+           (insert (org-make-link-string
+                    clipboard-url
+                    (read-string "title: "
+                                 (with-current-buffer (url-retrieve-synchronously clipboard-url)
+                                   (dom-text (car
+                                              (dom-by-tag (libxml-parse-html-region
+                                                           (point-min)
+                                                           (point-max))
+                                                          'title))))))))
+          (t
+           (call-interactively 'org-insert-link)))))
+
 (defvar hyprland-directions-alist
   '(("l" . left)
     ("r" . right)
@@ -541,8 +573,26 @@
         (alist-get ?Y avy-dispatch-alist) 'avy-action-yank-whole-line
         (alist-get ?' avy-dispatch-alist) 'avy-action-embark))
 
+(defun nox/open-in-reddigg (url &optional new-window)
+    "Open the provided url in reddigg"
+    (reddigg-view-comments url))
+
+(defun nox/parse-readwise (url &optional new-window)
+  "Extract, decode and open the save URL part from a given Readwise URL."
+  (if (string-match "https://wise\\.readwise\\.io/save\\?url=\\(.*\\)" url)
+      (browse-url (url-unhex-string (match-string 1 url)))
+    (error "Invalid URL format")))
+
+(setq browse-url-handlers
+      '(("^https?://www\\.reddit\\.com" . nox/open-in-reddigg)
+        ("^https?://arstechnica\\.com" . eww)
+        ("^https?://wise\\.readwise\\.io/save\\?url=" . nox/parse-readwise)))
+
+(setq browse-url-generic-program "firefox")
+
 (use-package calendar
   :ensure nil
+  :defer t
   :commands calendar
   :hook
   (calendar-mode . olivetti-mode)
@@ -585,33 +635,6 @@
                       :foreground (doom-color 'green)
                       :underline  'unspecified))
 
-(use-package transient :defer t)
-
-(use-package gptel
-  :commands gptel
-  :hook
-  (gptel-mode . evil-insert-state)
-  (gptel-mode . hide-mode-line-mode)
-  :bind* (("C-c RET" . gptel-send))
-  :custom
-  (gptel-model 'gpt-5-mini)
-  (gptel-default-mode 'org-mode)
-  (gptel-prompt-prefix-alist
-   '((markdown-mode . "**Prompt:** ")
-     (org-mode . "* ")
-     (text-mode . "Prompt: ")))
-  (gptel-response-prefix-alist
-   '((markdown-mode . "**Response:** ")
-     (org-mode . "")
-     (text-mode . "Response: ")))
-  (gptel-api-key (nox/get-secret ".api.openai"))
-  :config
-  (gptel-make-gemini "Gemini"
-                     :key (nox/get-secret ".api.gemini")
-                     :stream t)
-  (add-hook! gptel-post-stream #'gptel-auto-scroll)
-  (add-hook! gptel-post-response-functions #'gptel-end-of-response))
-
 (use-package denote
   :hook (dired-mode . denote-dired-mode)
   :custom
@@ -623,12 +646,20 @@
   (denote-rename-confirmations '(rewrite-front-matter modify-file-name))
   (denote-date-prompt-use-org-read-date t)
   :config
+  (add-hook! denote-after-new-note #'denote-hide-metadata)
   (denote-rename-buffer-mode 1))
+
+(defvar denote-workspace-name "notes" "Default denote workspace name.")
 
 (use-package consult-denote
   :hook (on-first-input . consult-denote-mode))
 
-(use-package denote-org)
+(use-package denote-explore
+  :commands (denote-explore-isolated-files denote-explore-random-note)
+  :custom
+  (denote-explore-isolated-ignore-keywords '("journal" "podcast")))
+
+(use-package denote-org :defer t)
 
 (use-package denote-journal
   :hook
@@ -640,9 +671,50 @@
 
 (use-package focus :commands focus-mode)
 
+(defun nox/org-ctrl-c-ctrl-c ()
+  "If in `nox/inbox-file' and in heading with CREATED, create a denote note.
+Copy only the subtree body to the kill ring, set the heading to DONE, and signal that the key has been handled."
+  (when (and buffer-file-name
+             (string-equal (expand-file-name buffer-file-name)
+                           (expand-file-name nox/inbox-file)))
+    (save-excursion
+      (org-back-to-heading t)
+      (let* ((element (org-element-at-point))
+             (raw-contents-begin (org-element-property :contents-begin element))
+             (contents-end       (org-element-property :contents-end element))
+             (heading  (org-get-heading t t t t))
+             (title    (denote-title-prompt heading))
+             (keywords (denote-keywords-prompt))
+             (created  (org-entry-get (point) "CREATED"))
+             (date     (or (and created (org-time-string-to-time created))
+                           (current-time)))
+             contents-begin)
+
+        ;; Compute contents-begin that skips a property drawer if present
+        (when raw-contents-begin
+          (goto-char raw-contents-begin)
+          (if (looking-at-p "^[ \t]*:PROPERTIES:")
+              (let ((drawer (org-element-at-point)))
+                (setq contents-begin (org-element-property :end drawer)))
+            (setq contents-begin raw-contents-begin)))
+
+        ;; Copy only if there is actual non-drawer contents
+        (when (and contents-begin contents-end
+                   (< contents-begin contents-end))
+          (kill-new (buffer-substring contents-begin contents-end)))
+
+        ;; Mark heading as DONE
+        (org-todo 'done)
+
+        ;; Create denote note
+        (denote title keywords nil nil date)
+        t))))
+
+(add-hook! org-ctrl-c-ctrl-c #'nox/org-ctrl-c-ctrl-c)
+
 (advice-add 'denote-journal-new-or-existing-entry :before
             (lambda (&rest _args)
-              (persp-switch "notes")))
+              (persp-switch denote-workspace-name)))
 
 (advice-add 'kill-current-buffer :after #'persp-kill-if-no-denote-buffer)
 
@@ -651,7 +723,7 @@
   (interactive)
   (condition-case nil
       (progn
-        (persp-switch "notes")
+        (persp-switch denote-workspace-name)
         (call-interactively 'denote-open-or-create))
     ((quit error user-error)
      (persp-kill-if-no-denote-buffer))))
@@ -667,7 +739,7 @@
   "Kill the current perspective if it contains no Denote buffers."
   (interactive)
   (let ((curr-persp (persp-curr)))
-    (when (and (string= (persp-name curr-persp) "notes")
+    (when (and (string= (persp-name curr-persp) denote-workspace-name)
                (not (seq-some #'persp-denote-buffer-p
                               (persp-buffers curr-persp))))
       (persp-kill (persp-name curr-persp))
@@ -693,16 +765,22 @@
 
 (defvar denote-hidden-metadata nil "Note has hidden metadata.")
 
-(defun denote-hide-metadata ()
+(defun denote--buffer-has-attachments-p ()
+  (let ((dir (org-attach-dir)))
+    (and dir
+         (file-directory-p dir)
+         (not (null (directory-files dir nil "^[^.].*"))))))
+
+(defun denote-hide-metadata (&rest _)
   "Render metadata as:
 
-    Title
-    DATE · tag1, tag2"
+           Title
+           AUTHOR · DATE · tag1, tag2 · +att"
   (interactive)
   (remove-overlays (point-min) (point-max) 'denote-org-meta t)
   (setq denote-hidden-metadata t)
 
-  (let (title title-beg title-end date tags)
+  (let (title title-beg title-end date tags author)
     (save-excursion
       (goto-char (point-min))
       (while (re-search-forward "^#\\+\\([a-zA-Z_]+\\):\\s-*\\(.*\\)$" nil t)
@@ -730,6 +808,12 @@
                (overlay-put ov 'invisible t)
                (overlay-put ov 'denote-org-meta t)))
 
+            ("author"
+             (setq author val)
+             (let ((ov (make-overlay bol eol)))
+               (overlay-put ov 'invisible t)
+               (overlay-put ov 'denote-org-meta t)))
+
             ("filetags"
              (setq tags (nox/org-format-filetags val))
              (let ((ov (make-overlay bol eol)))
@@ -742,16 +826,22 @@
                (overlay-put ov 'denote-org-meta t)))))))
 
     ;; Inject composed second line
-    (when (and title-end date tags)
-      (let* ((text (format "\n%s · %s" date tags))
+    (when (and title-end (or date tags author))
+      (let* ((parts
+              (delq nil
+                    (list
+                     (when author
+                       (propertize author 'face 'note-subtitle-face))
+                     (when date
+                       (propertize date 'face 'note-subtitle-face))
+                     (when tags
+                       (propertize tags 'face 'note-subtitle-face))
+                     (when (denote--buffer-has-attachments-p)
+                       (propertize "‡" 'face 'note-subtitle-face)))))
+             (sep (propertize " · " 'face 'shadow))
+             (text (string-join parts sep))
              (ov (make-overlay title-end title-end)))
-        (overlay-put
-         ov 'after-string
-         (concat
-          "\n"
-          (propertize date 'face 'note-subtitle-face)
-          (propertize "   " 'face 'shadow)
-          (propertize tags 'face 'note-subtitle-face)))
+        (overlay-put ov 'after-string (concat "\n" text))
         (overlay-put ov 'denote-org-meta t)))))
 
 (defun denote-show-metadata ()
@@ -771,7 +861,7 @@
 
 (defun nox/org-format-date (s)
   "Format Org timestamp S like
-  [2025-10-23 Thu 11:23] → Thu, 23 Oct 2025 — 11:23"
+         [2025-10-23 Thu 11:23] → Thu, 23 Oct 2025 - 11:23"
   (when (string-match
          "\\[\\([0-9]\\{4\\}\\)-\\([0-9]\\{2\\}\\)-\\([0-9]\\{2\\}\\) \\([A-Za-z]\\{3\\}\\) \\([0-9:]\\{5\\}\\)\\]"
          s)
@@ -781,7 +871,7 @@
            (dow   (match-string 4 s))
            (time  (match-string 5 s))
            (month-name (calendar-month-name month t)))
-      (format "%s, %s %s %s · %s"
+      (format "%s, %s %s %s - %s"
               dow day month-name year time))))
 
 (defun journal-hide-metadata ()
@@ -926,6 +1016,200 @@ functions. Otherwise, use denote metadata functions."
                                 ("mkv" . "mpv")
                                 ("mp4" . "mpv"))))
 
+(use-package elfeed
+  :commands (elfeed =elfeed)
+  :hook
+  (elfeed-show-mode   . variable-pitch-mode)
+  (elfeed-show-mode   . olivetti-mode)
+  (elfeed-search-mode . olivetti-mode)
+  (elfeed-search-mode . (lambda () (evil-goggles-mode -1)))
+  :bind
+  ([remap elfeed-search-fetch]         . nox/elfeed-refresh)
+  ([remap elfeed-search-update--force] . nox/elfeed-refresh)
+  ([remap elfeed-search-fetch]         . nox/elfeed-refresh)
+  ([remap elfeed-search-show-entry]    . nox/elfeed-show-or-open-in-browser)
+  :custom
+  (elfeed-search-filter "@1-weeks-ago +unread")
+  (elfeed-db-directory (expand-file-name "elfeed" minimal-emacs-user-directory))
+  :config
+  (require 'nano-elfeed)
+  (require 'elfeed-workspace)
+
+  (evil-define-key 'normal elfeed-search-mode-map
+    (kbd "j") 'nano-elfeed-next-entry
+    (kbd "r") 'nox/elfeed-refresh
+    (kbd "k") 'nano-elfeed-prev-entry
+    (kbd "s") 'elfeed-toggle-star)
+
+  (defalias 'elfeed-toggle-star
+    (elfeed-expose #'elfeed-search-toggle-all 'star))
+
+  ;; add advice cause needed to hit j twice for some reason
+  (advice-add 'elfeed-search-untag-all-unread :after #'nano-elfeed-next-entry)
+  (advice-add 'elfeed-search-untag-all-unread :after #'evil-force-normal-state)
+  (advice-add 'nox/elfeed-show-or-open-in-browser :after #'nano-elfeed-next-entry)
+
+  ;; auto center the screen
+  (advice-add 'nano-elfeed-next-entry :after #'good-scroll-center-cursor)
+  (advice-add 'nano-elfeed-prev-entry :after #'good-scroll-center-cursor)
+  (advice-add 'elfeed-search-untag-all-unread :after #'good-scroll-center-cursor)
+
+  (add-hook! elfeed-search-mode
+    (setq-local cursor-type nil
+                evil-normal-state-cursor nil
+                evil-insert-state-cursor nil)))
+
+(use-package elfeed-protocol
+  :after elfeed
+  :custom
+  (elfeed-use-curl t)
+  (elfeed-curl-extra-arguments '("--insecure"))
+  (elfeed-protocol-enabled-protocols '(fever))
+  (elfeed-protocol-fever-update-unread-only t)
+  (elfeed-protocol-fever-fetch-category-as-tag t)
+  :config
+  (elfeed-set-timeout 36000)
+  (elfeed-protocol-enable)
+  (defconst nox/freshrss-url (nox/get-secret ".identity.freshrss.url"))
+
+  (setq elfeed-protocol-feeds `((,(concat "fever+" nox/freshrss-url)
+                                 :api-url
+                                 ,(concat nox/freshrss-url "/api/fever.php")
+                                 :password
+                                 ,(nox/get-secret ".identity.freshrss.pass")))))
+
+(use-package reddigg :commands (reddigg-view-comments))
+
+;; FIXME: update logic to exempt shr-link which already contains text before it
+(require 'cl-lib)
+
+(defvar visually-cleanup-skip-faces
+  '(shr-link
+    message-header-name
+    gnus-header-name
+    gnus-button)
+  "List of text faces that should prevent newline joining.")
+
+(defun visually-cleanup-lines ()
+  "Visually join single newlines and collapse multiple spaces into one.
+Skips paragraph breaks and lines with '*' or faces in `visually-cleanup-skip-faces` near the newline."
+  (interactive)
+  (save-excursion
+    (goto-char (point-min))
+
+    ;; Collapse multiple spaces into one (visually)
+    (while (re-search-forward " \\{2,\\}" nil t)
+      (let ((ov (make-overlay (match-beginning 0) (match-end 0))))
+        (overlay-put ov 'display " ")
+        (overlay-put ov 'invisible t)
+        (overlay-put ov 'read-only t)
+        (overlay-put ov 'evaporate t)))
+
+    ;; Helper to check if any unwanted face is present
+    (defun face-should-skip (face)
+      (cond
+       ((null face) nil)
+       ((symbolp face) (memq face visually-cleanup-skip-faces))
+       ((listp face) (cl-some (lambda (f) (memq f visually-cleanup-skip-faces)) face))
+       (t nil)))
+
+    (goto-char (point-min))
+    ;; Visually join single newlines
+    (while (re-search-forward "\\([^\n]\\)\n\\([^\n]\\)" nil t)
+      (let* ((pre-pos (match-beginning 1))
+             (post-pos (match-beginning 2))
+             (pre-char (char-after pre-pos))
+             (post-char (char-after post-pos))
+             (pre-face (get-text-property pre-pos 'face))
+             (post-face (get-text-property post-pos 'face)))
+
+        (unless (or (eq pre-char ?*)
+                    (eq post-char ?*)
+                    (face-should-skip pre-face)
+                    (face-should-skip post-face))
+          (let ((newline-pos (1+ pre-pos)))
+            (let ((ov (make-overlay newline-pos (1+ newline-pos))))
+              (overlay-put ov 'display " ")
+              (overlay-put ov 'invisible t)
+              (overlay-put ov 'read-only t)
+              (overlay-put ov 'evaporate t)))))
+
+      ;; Move forward to prevent infinite loop
+      (goto-char (1+ (match-beginning 0))))))
+
+(defun nox/elfeed-refresh ()
+  "Refresh elfeed feed along with unread state. Only use inside elfeed search."
+  (interactive)
+  (mark-whole-buffer)
+  (cl-loop for entry in (elfeed-search-selected)
+           do (elfeed-untag-1 entry 'unread))
+  (elfeed-search-update--force)
+  (elfeed-protocol-fever-reinit nox/freshrss-url))
+
+(defun nox/elfeed-show-or-open-in-browser ()
+  "Open Reddit-tagged entries in external browser, else show in elfeed.
+If opened externally, remove the 'unread' tag from the entry."
+  (interactive)
+  (let ((entry (elfeed-search-selected :ignore-region)))
+    (if (memq 'Reddit (elfeed-entry-tags entry))
+        (progn
+          (browse-url (elfeed-entry-link entry))
+          ;; Remove 'unread' tag from entry
+          (elfeed-untag entry 'unread)
+          ;; Refresh entry in search buffer
+          (elfeed-search-update-entry entry))
+      (elfeed-search-show-entry entry))))
+
+(defun nox/elfeed-cleanup-and-exit ()
+  "Save elfeed DB, kill all elfeed-related buffers, kill the current buffer, and kill the workspace."
+  (interactive)
+  ;; Save elfeed database
+  (elfeed-db-save)
+
+  ;; Kill all elfeed-related buffers
+  (dolist (buf (buffer-list))
+    (with-current-buffer buf
+      (when (derived-mode-p 'elfeed-search-mode 'elfeed-show-mode)
+        (kill-buffer buf))))
+
+  ;; Kill the current workspace (Doom-specific)
+  (persp-kill +elfeed-workspace-name))
+
+(use-package transient :defer t)
+
+(use-package gptel
+  :commands gptel
+  :hook
+  (gptel-mode . evil-insert-state)
+  (gptel-mode . hide-mode-line-mode)
+  :bind* (("C-c RET" . gptel-send))
+  :custom
+  (gptel-model 'gpt-5-mini)
+  (gptel-default-mode 'org-mode)
+  (gptel-prompt-prefix-alist
+   '((markdown-mode . "**Prompt:** ")
+     (org-mode . "* ")
+     (text-mode . "Prompt: ")))
+  (gptel-response-prefix-alist
+   '((markdown-mode . "**Response:** ")
+     (org-mode . "")
+     (text-mode . "Response: ")))
+  (gptel-api-key (nox/get-secret ".api.openai"))
+  :config
+  (gptel-make-gemini "Gemini"
+                     :key (nox/get-secret ".api.gemini")
+                     :stream t)
+  (add-hook! gptel-post-stream #'gptel-auto-scroll)
+  (add-hook! gptel-post-response-functions #'gptel-end-of-response))
+
+(defun nox/gptel-abort ()
+  "If the buffer-name matches *ChatGPT, run `gptel-abort'."
+  (when (string-match-p "^\\*ChatGPT" (buffer-name))
+    (gptel-abort (current-buffer))
+    t))
+
+(add-hook! org-ctrl-c-ctrl-c-final #'nox/gptel-abort)
+
 (use-package helpful
   :hook
   (helpful-mode . (lambda ()
@@ -950,6 +1234,31 @@ functions. Otherwise, use denote metadata functions."
   :hook
   (on-first-input . global-jinx-mode)
   :bind* (("C-/" . jinx-correct)))
+
+(defun nox/kindle-first-page ()
+  "Go to the first page of the book."
+  (interactive)
+  (url-retrieve "http://kindle:1337/koreader/event/GoToBeginning" #'ignore))
+
+(defun nox/kindle-next-bookmark ()
+  "Go to the next bookmark."
+  (interactive)
+  (url-retrieve "http://kindle:1337/koreader/event/GotoNextBookmarkFromPage" #'ignore))
+
+(defun nox/kindle-prev-bookmark ()
+  "Go to the previous bookmark."
+  (interactive)
+  (url-retrieve "http://kindle:1337/koreader/event/GotoPreviousBookmarkFromPage" #'ignore))
+
+(defun nox/kindle-next-page ()
+  "Go to the next page."
+  (interactive)
+  (url-retrieve "http://kindle:1337/koreader/event/GotoViewRel/1 " #'ignore))
+
+(defun nox/kindle-prev-page ()
+  "Go to the prev page."
+  (interactive)
+  (url-retrieve "http://kindle:1337/koreader/event/GotoViewRel/-1 " #'ignore))
 
 (use-package eros
   :hook
@@ -1050,6 +1359,10 @@ controls the state:
         (insert (concat (string-remove-suffix "..." journal) "\n"))))
     (message "Journal entry added.")))
 
+(use-package wasabi
+  :commands wasabi
+  :ensure (:host github :repo "xenodium/wasabi" :branch "main"))
+
 (defun nox/buffer-regex-builder (names)
   "Return a regex that matches *NAMES* buffers."
   (concat
@@ -1100,7 +1413,7 @@ controls the state:
          (direction . right)
          (window-width . 0.5))
         ;; Special Windows
-        (,(nox/buffer-regex-builder '("vterm" "eshell" "eldoc" "use-package statistics" "compilation"))
+        (,(nox/buffer-regex-builder '("reddigg-comments" "vterm" "eshell" "eldoc" "use-package statistics" "compilation"))
          (display-buffer-in-side-window)
          (side . bottom)
          (window-height . 0.4)
@@ -1180,8 +1493,8 @@ controls the state:
 ;; Add the function to hooks
 (add-hook! buffer-list-update #'nox/run-commands-for-buffer-names)
 
-(use-package buffer-terminator
-  :hook (on-first-input . buffer-terminator-mode))
+;; (use-package buffer-terminator
+;;   :hook (on-first-input . buffer-terminator-mode))
 
 (use-package nerd-icons-ibuffer
   :hook (ibuffer-mode . nerd-icons-ibuffer-mode))
@@ -1199,6 +1512,7 @@ controls the state:
   :custom
   (persp-mode-prefix-key (kbd "C-c b"))
   (persp-initial-frame-name "main")
+  (persp-sort 'created)
   :config
   (persp-turn-off-modestring))
 
@@ -1465,10 +1779,11 @@ controls the state:
   (org-mode . visual-line-mode)
   (org-mode . variable-pitch-mode)
   (org-capture-mode . evil-insert-state)
+  (org-mode . org-fold-hide-drawer-all)
   (org-mode . (lambda ()
                 (add-hook! before-save :local #'org-update-all-dblocks)))
   :custom
-  (org-ellipsis " [...] ")
+  (org-ellipsis "...")
   (org-confirm-babel-evaluate nil)
   (org-M-RET-may-split-line nil)
   (org-startup-with-latex-preview nil)
@@ -1484,11 +1799,32 @@ controls the state:
   (org-hide-emphasis-markers t)
   (org-hide-leading-stars t)
   :config
-  (require 'inbox-notes-dblock)
+  (nox/set-org-faces)
+  (require 'inbox-notes-dblock))
+
+(defun nox/set-org-faces ()
+  (set-face-attribute 'org-ellipsis nil
+                      :foreground 'unspecified
+                      :inherit '(org-meta-line))
+  (set-face-attribute 'org-special-keyword nil
+                      :foreground 'unspecified
+                      :inherit '(org-meta-line))
+  (set-face-attribute 'org-drawer nil
+                      :foreground 'unspecified
+                      :inherit '(org-meta-line))
   (set-face-attribute 'org-quote nil
                       :family 'unspecified
                       :slant 'italic
                       :inherit '(variable-pitch org-block)))
+
+(defun nox/org-collapse-done-subtrees ()
+  "Fold all Org subtrees marked DONE."
+  (interactive)
+  (org-map-entries
+   (lambda ()
+     (org-fold-hide-subtree))
+   "/DONE"
+   'file))
 
 (use-package org-agenda
   :ensure nil
@@ -1579,11 +1915,9 @@ controls the state:
                 ("#+END:" . "«")
                 ("#+begin_example" . "»")
                 ("#+end_example" . "«")
-                ("#+begin_quote" . "")
-                ("#+end_quote" . "")
                 ;; quote
-                ("#+begin_quote" . "")
-                ("#+end_quote" . "")
+                ("#+begin_quote" . "")
+                ("#+end_quote" . "")
                 ;; babel
                 ("#+RESULTS:" . "󰥤")
                 (":tangle" . "󰯊")
@@ -1665,15 +1999,15 @@ controls the state:
   :config
   ;; persp with consult
   (with-eval-after-load 'perspective
-    (consult-customize consult--source-buffer :hidden t :default nil)
+    (consult-customize consult-source-buffer :hidden t :default nil)
     (add-to-list 'consult-buffer-sources 'persp-consult-source))
 
   (consult-customize
    consult-theme :preview-key '(:debounce 0.2 any)
    consult-ripgrep consult-git-grep consult-grep
    consult-bookmark consult-recent-file consult-xref
-   consult--source-bookmark consult--source-file-register
-   consult--source-recent-file consult--source-project-recent-file
+   consult-source-bookmark consult-source-file-register
+   consult-source-recent-file consult-source-project-recent-file
    ;; :preview-key "M-."
    :preview-key '(:debounce 0.4 any))
   (setq consult-narrow-key "<"))
@@ -1822,27 +2156,27 @@ controls the state:
         ("C-c C-d" . sops-edit-file)))
 
 (use-package corfu
-    :hook
-    (on-first-input . global-corfu-mode)
-    (prog-mode . corfu-mode)
-    (shell-mode . corfu-mode)
-    (eshell-mode . corfu-mode)
-    :custom
-    (corfu-cycle t)                     ;; Enable cycling for `corfu-next/previous'
-    (corfu-auto t)                      ;; Enable auto completion
-    (corfu-auto-prefix 2)               ;; Enable auto completion
-    (corfu-auto-delay 0.24)             ;; Enable auto completion
-    (corfu-preview-current 'insert)     ;; Disable current candidate preview
-    (corfu-on-exact-match nil)          ;; Configure handling of exact matches
-    (corfu-scroll-margin 5)             ;; Use scroll margin
-    (corfu-quit-at-boundary 'separator) ;; Quit completion unless seperator
-    :bind
-    (:map corfu-map
-          ("M-SPC" . corfu-insert-separator))
-    :config
-    (set-face-attribute 'corfu-default nil :inherit 'fixed-pitch)
-    (nox/set-corfu-colors)
-    (add-hook 'evil-insert-state-exit-hook #'corfu-quit))
+  :hook
+  (on-first-input . global-corfu-mode)
+  (prog-mode . corfu-mode)
+  (shell-mode . corfu-mode)
+  (eshell-mode . corfu-mode)
+  :custom
+  (corfu-cycle t)                     ;; Enable cycling for `corfu-next/previous'
+  (corfu-auto t)                      ;; Enable auto completion
+  (corfu-auto-prefix 2)               ;; Enable auto completion
+  (corfu-auto-delay 0.24)             ;; Enable auto completion
+  (corfu-preview-current 'insert)     ;; Disable current candidate preview
+  (corfu-on-exact-match nil)          ;; Configure handling of exact matches
+  (corfu-scroll-margin 5)             ;; Use scroll margin
+  (corfu-quit-at-boundary 'separator) ;; Quit completion unless seperator
+  :bind
+  (:map corfu-map
+        ("M-SPC" . corfu-insert-separator))
+  :config
+  (set-face-attribute 'corfu-default nil :inherit 'fixed-pitch)
+  (nox/set-corfu-colors)
+  (add-hook 'evil-insert-state-exit-hook #'corfu-quit))
 
 (defun nox/set-corfu-colors ()
   (when (featurep 'corfu)
@@ -1883,46 +2217,66 @@ controls the state:
   (read-extended-command-predicate #'command-completion-default-include-p))
 
 (use-package cape
-  :ensure t
   :commands (cape-dabbrev cape-file cape-elisp-block)
   :bind ("C-c p" . cape-prefix-map)
   :init
-  ;; Add to the global default value of `completion-at-point-functions' which is
-  ;; used by `completion-at-point'.
   (add-hook 'completion-at-point-functions #'cape-dabbrev)      ;; word completion from buffer
   (add-hook 'completion-at-point-functions #'cape-file)         ;; file name completion
   (add-hook 'completion-at-point-functions #'cape-keyword))
 
+(use-package eglot
+  :ensure nil
+  :hook
+  (prog-mode . eglot-ensure)
+  (eglot--managed-mode . nox/update-capf-eglot)
+  :commands
+  (eglot-ensure
+   eglot-rename
+   eglot-format-buffer)
+  :bind
+  ([remap eldoc-doc-buffer] . eldoc-box-help-at-point)
+  :config
+  (add-to-list
+   'eglot-server-programs
+   '(python-ts-mode . ("rass" "python")))
+
+  (set-face-attribute 'eglot-inlay-hint-face nil
+                      :inherit 'font-lock-comment-face
+                      :italic t))
+
+(defun cape-eglot-yasnippet ()
+  (cape-wrap-super #'eglot-completion-at-point #'yasnippet-capf #'snippy-capf))
+
+(defun nox/update-capf-eglot ()
+  "Adds snippets completion to eglot."
+  (remove-hook! 'completion-at-point-functions :local #'eglot-completion-at-point)
+  (add-hook! 'completion-at-point-functions :local #'cape-eglot-yasnippet))
+
 (use-package markdown-mode :defer t)
 
-(use-package lsp-mode
-  :commands lsp
-  :hook
-  (python-ts-mode . lsp-deferred)
-  (lsp-mode . lsp-enable-which-key-integration)
+(use-package eldoc-box :commands eldoc-box-help-at-point)
+
+(use-package yasnippet :hook (on-first-file . yas-global-mode))
+
+;;   (use-package doom-snippets
+;;     :after yasnippet
+;;     :ensure (doom-snippets :type git :host github :repo "doomemacs/snippets" :files ("*.el" "*"))
+;;   :config
+;; (add-to-list 'yas-snippet-dirs (expand-file-name "snippets" nox/emacs-directory)))
+
+(use-package snippy
+  :ensure (:host github :repo "MiniApollo/snippy" :branch "main" :rev :newest)
+  :hook (yas-global-mode . global-snippy-minor-mode)
   :custom
-  (lsp-headerline-breadcrumb-enable nil)
-  (lsp-keep-workspace-alive nil)
-  (lsp-auto-guess-root t)
-  (lsp-signature-auto-activate t)
-  :init
-  (setq lsp-keymap-prefix "C-c l"))
+  (snippy-global-languages '("global"))
+  :config
+  (snippy-install-or-update-snippets)
+  (add-hook 'completion-at-point-functions #'snippy-capf))
 
-;; optionally
-(use-package lsp-ui :commands lsp-ui-mode)
-
-(use-package flycheck
-  :hook
-  (lsp-mode . flycheck-mode))
-
-(use-package yasnippet
-  :hook (on-first-file . yas-global-mode)
-  :custom
-  (yas-snippet-dirs (list (expand-file-name "snippets" nox/emacs-directory))))
-
-(use-package doom-snippets
-  :after yasnippet
-  :ensure (doom-snippets :type git :host github :repo "doomemacs/snippets" :files ("*.el" "*")))
+(use-package yasnippet-capf
+  :after cape
+  :config
+  (add-hook 'completion-at-point-functions #'yasnippet-capf))
 
 (use-package apheleia
   :commands apheleia-mode
@@ -2025,7 +2379,7 @@ controls the state:
 
 (defun nox/create-git-repo (project-name)
   "Create a new Git repository under `nox/projects-directory` named PROJECT-NAME.
-      If the directory already exists, signal a user error."
+        If the directory already exists, signal a user error."
   (interactive "sProject name: ")
   (let* ((root   (file-name-as-directory
                   (expand-file-name nox/projects-directory)))
@@ -2043,7 +2397,7 @@ controls the state:
 
 (defun nox/create-projectile-project (project-name)
   "Create a new Projectile project under `nox/projects-directory`.
-    Makes a fresh directory named PROJECT-NAME and an empty `.projectile` file in it."
+      Makes a fresh directory named PROJECT-NAME and an empty `.projectile` file in it."
   (interactive "sProject name: ")
   (let* ((root   (file-name-as-directory
                   (expand-file-name nox/projects-directory)))
@@ -2116,6 +2470,35 @@ controls the state:
   :hook (on-first-input . global-treesit-auto-mode)
   :config
   (treesit-auto-add-to-auto-mode-alist 'all))
+
+(use-package indent-bars
+  :custom
+  (indent-bars-treesit-support t)
+  (indent-bars-no-descend-string t)
+  (indent-bars-treesit-ignore-blank-lines-types '("module"))
+  (indent-bars-treesit-wrap '((python argument_list parameters
+                                      list list_comprehension
+                                      dictionary dictionary_comprehension
+                                      parenthesized_expression subscript)))
+  :hook ((eglot--managed-mode yaml-mode) . indent-bars-mode))
+
+(setq-default indent-tabs-mode nil)
+(setq-default indent-line-function 'insert-tab)
+(setq-default tab-width 4)
+(setq-default c-basic-offset 4)
+(setq-default js-switch-indent-offset 4)
+(c-set-offset 'comment-intro 0)
+(c-set-offset 'innamespace 0)
+(c-set-offset 'case-label '+)
+(c-set-offset 'access-label 0)
+(c-set-offset (quote cpp-macro) 0 nil)
+(defun smart-electric-indent-mode ()
+  "Disable 'electric-indent-mode in certain buffers and enable otherwise."
+  (cond ((and (eq electric-indent-mode t)
+              (member major-mode '(erc-mode text-mode)))
+         (electric-indent-mode 0))
+        ((eq electric-indent-mode nil) (electric-indent-mode 1))))
+(add-hook 'post-command-hook #'smart-electric-indent-mode)
 
 (use-package eshell
   :commands eshell
