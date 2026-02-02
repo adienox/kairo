@@ -172,9 +172,11 @@
   "c"   '(:ignore t :wk "[C]ode")
   "c a" '(eglot-code-actions :wk "Code actions")
   "c r" '(eglot-rename :wk "Eglot rename")
-  "c e" '(flycheck-list-errors :wk "List errors"))
+  "c e" '(flycheck-list-errors :wk "List errors")
+  "c f" '(consult-flymake :wk "Consult [F]lymake")
+  "c n" '(flymake-goto-next-error :wk "[N]ext flymake error")
+  "c p" '(flymake-goto-prev-error :wk "[P]revious flymake error")
 
-(nox/prog-keys
   "c d"   '(:ignore t :wk "[D]irenv")
   "c d a" '(envrc-allow :wk "[A]llow environment")
   "c d r" '(envrc-reload :wk "[R]eload environment"))
@@ -253,7 +255,7 @@
   "o n r" '(denote-explore-random-note :wk "[R]andom note")
   "o n i" '(denote-explore-isolated-files :wk "[I]solated notes")
   "o n R" '(denote-rename-file :wk "[R]ename note")
-  "o n m" '(denote-toggle-metadata :wk "[M]etadata toggle")
+  "o n m" '(denote-hide-metadata-mode :wk "[M]etadata toggle")
   "o n l" '(denote-link-or-create :wk "[L]ink note")
   "o n b" '(denote-backlinks :wk "[B]acklinks")
   "o n j" '(denote-journal-new-or-existing-entry :wk "[J]ournal"))
@@ -273,6 +275,23 @@
   "p r" '(projectile-remove-known-project :wk "[R]emove Project")
   "p c" '(projectile-compile-project :wk "[C]ompile Project")
   "p s" '(+switch-or-make-project :wk "[S]witch Project"))
+
+(defun nox/reload-config()
+  "Reload Emacs config"
+  (interactive)
+  (load-file (expand-file-name "post-init.el" nox/emacs-directory)))
+
+(nox/leader-keys
+  "r" '(:ignore t :wk "[R]eload & Packages")
+  ;; Mason.el
+  "r m" '(mason-manager :wk "Mason manager")
+  "r i" '(mason-install :wk "Mason install")
+  ;; Package-menu-mode
+  "r t" '(elpaca-try :wk "[T]ry package")
+  "r n" '(elpaca-info :wk "[N]amed package filter")
+  "r u" '(elpaca-pull-all :wk "[U]pgrade packages")
+
+  "r r" '(nox/reload-config :wk "[R]eload config"))
 
 (nox/leader-keys
   "s"   '(:ignore t :wk "[S]earch")
@@ -514,6 +533,28 @@
 
 ;; run `nox/after-theme-change-hook' after load-theme
 (advice-add 'load-theme :after #'nox/run-after-theme-change-hook)
+
+(use-package mason
+  :hook (on-first-input . mason-ensure))
+
+(defun nox/mason-ensure (arg &optional packages)
+  "Ensure PACKAGES are installed via Mason.
+If ARG is a symbol (mode), add a Doom-style hook for it.
+If ARG is a list (packages), install immediately."
+  (if (symbolp arg)
+      ;; ARG is a mode
+      (when packages
+        (add-hook! arg
+          (dolist (pkg packages)
+            (unless (mason-installed-p pkg)
+              (ignore-errors
+                (mason-install pkg))))))
+    ;; ARG is actually the packages list, install now
+    (let ((pkgs arg))
+      (dolist (pkg pkgs)
+        (unless (mason-installed-p pkg)
+          (ignore-errors
+            (mason-install pkg)))))))
 
 (use-package avy
   :commands
@@ -763,8 +804,6 @@ Copy only the subtree body to the kill ring, set the heading to DONE, and signal
        :inherit default))
   "Face used for displaying journal titles.")
 
-(defvar denote-hidden-metadata nil "Note has hidden metadata.")
-
 (defun denote--buffer-has-attachments-p ()
   (let ((dir (org-attach-dir)))
     (and dir
@@ -776,9 +815,7 @@ Copy only the subtree body to the kill ring, set the heading to DONE, and signal
 
            Title
            AUTHOR · DATE · tag1, tag2 · +att"
-  (interactive)
   (remove-overlays (point-min) (point-max) 'denote-org-meta t)
-  (setq denote-hidden-metadata t)
 
   (let (title title-beg title-end date tags author)
     (save-excursion
@@ -846,9 +883,7 @@ Copy only the subtree body to the kill ring, set the heading to DONE, and signal
 
 (defun denote-show-metadata ()
   "Remove Org metadata overlays."
-  (interactive)
-  (remove-overlays (point-min) (point-max) 'denote-org-meta t)
-  (setq denote-hidden-metadata nil))
+  (remove-overlays (point-min) (point-max) 'denote-org-meta t))
 
 (add-hook! denote-after-rename-file #'denote-hide-metadata)
 
@@ -877,9 +912,7 @@ Copy only the subtree body to the kill ring, set the heading to DONE, and signal
 (defun journal-hide-metadata ()
   "Hide all Org header metadata and show only the raw title text,
 styled with `journal-title-face`."
-  (interactive)
   (remove-overlays (point-min) (point-max) 'journal-meta t)
-  (setq denote-hidden-metadata t)
   (save-excursion
     (goto-char (point-min))
     (while (re-search-forward "^#\\+\\([a-zA-Z_]+\\):[ \t]*\\(.*\\)$" nil t)
@@ -904,15 +937,15 @@ styled with `journal-title-face`."
 
 (defun journal-show-metadata ()
   "Remove journal metadata overlays."
-  (interactive)
-  (remove-overlays (point-min) (point-max) 'journal-meta t)
-  (setq denote-hidden-metadata nil))
+  (remove-overlays (point-min) (point-max) 'journal-meta t))
 
-(defun denote-toggle-metadata ()
-  "Toggle denote metadata.
-If current buffer is a journal, use journal metadata
-functions. Otherwise, use denote metadata functions."
-  (interactive)
+(define-minor-mode denote-hide-metadata-mode
+  "Minor mode to toggle Denote or journal metadata display.
+
+If the current buffer is a journal file (filename contains \"__journal\"),
+use journal metadata functions. Otherwise, use Denote metadata functions."
+  :init-value nil
+  :interactive '(org-mode)
   (when-let ((file (buffer-file-name)))
     (let* ((is-journal (string-match-p "__journal"
                                        (file-name-nondirectory file)))
@@ -922,7 +955,9 @@ functions. Otherwise, use denote metadata functions."
            (hide-fn (if is-journal
                         #'journal-hide-metadata
                       #'denote-hide-metadata)))
-      (funcall (if denote-hidden-metadata show-fn hide-fn)))))
+      (if denote-hide-metadata-mode
+          (funcall hide-fn)
+        (funcall show-fn)))))
 
 (use-package dired
   :ensure nil
@@ -2012,6 +2047,36 @@ controls the state:
    :preview-key '(:debounce 0.4 any))
   (setq consult-narrow-key "<"))
 
+(use-package consult-dir
+  :bind (("C-x C-d" . consult-dir)
+         :map vertico-map
+         ("C-x C-d" . consult-dir)
+         ("C-x C-j" . consult-dir-jump-file))
+  :custom
+  (consult-dir-default-command #'consult-dir-dired)
+  :config
+  (setq consult-dir-project-list-function #'consult-dir-projectile-dirs)
+
+  ;; A function that returns a list of directories
+  (defun consult-dir--work-dirs ()
+    "Return list of work dirs."
+    (append
+     (split-string (shell-command-to-string "find ~/.config -maxdepth 1 -type d") "\n" t)))
+
+  ;; A consult source that calls this function
+  (defvar consult-dir--source-work
+    `(:name     "Work Directories"
+                :narrow   ?w
+                :category file
+                :face     consult-file
+                :history  file-name-history
+                :enabled  ,(lambda () (executable-find "find"))
+                :items    ,#'consult-dir--work-dirs)
+    "Work directory source for `consult-dir'.")
+
+  ;; Adding to the list of consult-dir sources
+  (add-to-list 'consult-dir-sources 'consult-dir--source-work t))
+
 (use-package embark
   ;; Embark is an Emacs package that acts like a context menu, allowing
   ;; users to perform context-sensitive actions on selected items
@@ -2228,7 +2293,6 @@ controls the state:
   :ensure nil
   :hook
   (prog-mode . eglot-ensure)
-  (eglot--managed-mode . nox/update-capf-eglot)
   :commands
   (eglot-ensure
    eglot-rename
@@ -2240,29 +2304,34 @@ controls the state:
    'eglot-server-programs
    '(python-ts-mode . ("rass" "python")))
 
+  ;; ensure rass is installed
+  (nox/mason-ensure '("rass"))
+
   (set-face-attribute 'eglot-inlay-hint-face nil
                       :inherit 'font-lock-comment-face
                       :italic t))
 
-(defun cape-eglot-yasnippet ()
-  (cape-wrap-super #'eglot-completion-at-point #'yasnippet-capf #'snippy-capf))
-
-(defun nox/update-capf-eglot ()
-  "Adds snippets completion to eglot."
-  (remove-hook! 'completion-at-point-functions :local #'eglot-completion-at-point)
-  (add-hook! 'completion-at-point-functions :local #'cape-eglot-yasnippet))
+(nox/mason-ensure 'python-ts-mode '("ruff" "ty"))
 
 (use-package markdown-mode :defer t)
 
 (use-package eldoc-box :commands eldoc-box-help-at-point)
 
-(use-package yasnippet :hook (on-first-file . yas-global-mode))
+(use-package sideline-flymake
+  :hook
+  (flymake-mode . sideline-mode)
+  (sideline-mode . nox/sideline-remove-flymake-eldoc)
+  :custom
+  (sideline-flymake-display-mode 'line)
+  (sideline-backends-right '(sideline-flymake)))
 
-;;   (use-package doom-snippets
-;;     :after yasnippet
-;;     :ensure (doom-snippets :type git :host github :repo "doomemacs/snippets" :files ("*.el" "*"))
-;;   :config
-;; (add-to-list 'yas-snippet-dirs (expand-file-name "snippets" nox/emacs-directory)))
+(defun nox/sideline-remove-flymake-eldoc ()
+  (setq-local eldoc-documentation-functions (remove #'flymake-eldoc-function eldoc-documentation-functions)))
+
+(use-package yasnippet
+  :hook
+  (on-first-file . yas-global-mode)
+  (eglot--managed-mode . nox/update-capf-eglot))
 
 (use-package snippy
   :ensure (:host github :repo "MiniApollo/snippy" :branch "main" :rev :newest)
@@ -2277,6 +2346,14 @@ controls the state:
   :after cape
   :config
   (add-hook 'completion-at-point-functions #'yasnippet-capf))
+
+(defun cape-eglot-yasnippet ()
+  (cape-wrap-super #'eglot-completion-at-point #'yasnippet-capf #'snippy-capf))
+
+(defun nox/update-capf-eglot ()
+  "Adds snippets completion to eglot."
+  (remove-hook! 'completion-at-point-functions :local #'eglot-completion-at-point)
+  (add-hook! 'completion-at-point-functions :local #'cape-eglot-yasnippet))
 
 (use-package apheleia
   :commands apheleia-mode
