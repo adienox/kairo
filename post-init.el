@@ -3,7 +3,6 @@
 (setq init-start-time (current-time))
 
 (load custom-file 'noerror 'no-message)
-
 (use-package exec-path-from-shell
   :hook
   (on-first-input . exec-path-from-shell-initialize))
@@ -271,7 +270,7 @@
 
 (nox/leader-keys
   "p"   '(:ignore t :wk "[P]roject")
-  "SPC" '(projectile-find-file :wk "Find file in project")
+  "SPC" '(consult-projectile :wk "Find file in project")
   "p r" '(projectile-remove-known-project :wk "[R]emove Project")
   "p c" '(projectile-compile-project :wk "[C]ompile Project")
   "p s" '(+switch-or-make-project :wk "[S]witch Project"))
@@ -535,7 +534,7 @@
 (advice-add 'load-theme :after #'nox/run-after-theme-change-hook)
 
 (use-package mason
-  :hook (on-first-input . mason-ensure))
+  :hook (on-first-file . mason-ensure))
 
 (defun nox/mason-ensure (arg &optional packages)
   "Ensure PACKAGES are installed via Mason.
@@ -2245,6 +2244,7 @@ controls the state:
 
 (defun nox/set-corfu-colors ()
   (when (featurep 'corfu)
+    (set-face-attribute 'corfu-default nil :background (doom-color 'bg))
     (set-face-attribute 'corfu-current nil :background (doom-color 'bg-alt))))
 
 (add-hook! nox/after-theme-change #'nox/set-corfu-colors)
@@ -2293,6 +2293,7 @@ controls the state:
   :ensure nil
   :hook
   (prog-mode . eglot-ensure)
+  (eglot-managed-mode . nox/eglot-remove-signature-eldoc)
   :commands
   (eglot-ensure
    eglot-rename
@@ -2300,22 +2301,29 @@ controls the state:
   :bind
   ([remap eldoc-doc-buffer] . eldoc-box-help-at-point)
   :config
-  (add-to-list
-   'eglot-server-programs
-   '(python-ts-mode . ("rass" "python")))
-
   ;; ensure rass is installed
   (nox/mason-ensure '("rass"))
 
+  ;; inly hint face
   (set-face-attribute 'eglot-inlay-hint-face nil
                       :inherit 'font-lock-comment-face
                       :italic t))
 
-(nox/mason-ensure 'python-ts-mode '("ruff" "ty"))
+(defun nox/eglot-remove-signature-eldoc ()
+  (setq-local eldoc-documentation-functions
+              (remove #'eglot-signature-eldoc-function eldoc-documentation-functions)))
 
-(use-package markdown-mode :defer t)
+(use-package markdown-mode
+  :init
+  ;; hover signature help face
+  (set-face-attribute 'markdown-code-face nil
+                      :background 'unspecified))
 
-(use-package eldoc-box :commands eldoc-box-help-at-point)
+(use-package eldoc-box
+  :commands eldoc-box-help-at-point
+  :config
+  (nox/set-eldoc-box-colors)
+  (add-hook! nox/after-theme-change #'nox/set-eldoc-box-colors))
 
 (use-package sideline-flymake
   :hook
@@ -2325,13 +2333,21 @@ controls the state:
   (sideline-flymake-display-mode 'line)
   (sideline-backends-right '(sideline-flymake)))
 
+(defun nox/set-eldoc-box-colors ()
+  (set-face-attribute 'eldoc-box-border nil
+                      :background 'unspecified
+                      :inherit 'corfu-border)
+
+  (set-face-attribute 'eldoc-box-markdown-separator nil
+                      :foreground (doom-color 'bg-alt2)))
+
 (defun nox/sideline-remove-flymake-eldoc ()
   (setq-local eldoc-documentation-functions (remove #'flymake-eldoc-function eldoc-documentation-functions)))
 
 (use-package yasnippet
   :hook
   (on-first-file . yas-global-mode)
-  (eglot--managed-mode . nox/update-capf-eglot))
+  (eglot-managed-mode . nox/update-capf-eglot))
 
 (use-package snippy
   :ensure (:host github :repo "MiniApollo/snippy" :branch "main" :rev :newest)
@@ -2389,7 +2405,6 @@ controls the state:
 
 (add-hook! (nox/after-theme-change on-first-file) #'nox/set-diff-hl-faces)
 
-(use-package transient)
 (use-package magit
   :hook
   (git-commit-mode . (lambda () (mixed-pitch-mode -1)))
@@ -2453,6 +2468,9 @@ controls the state:
   (on-init-ui . projectile-mode)
   :custom
   (projectile-project-search-path (list nox/projects-directory)))
+
+(use-package consult-projectile
+  :after (:all projectile consult))
 
 (defun nox/create-git-repo (project-name)
   "Create a new Git repository under `nox/projects-directory` named PROJECT-NAME.
@@ -2557,7 +2575,7 @@ controls the state:
                                       list list_comprehension
                                       dictionary dictionary_comprehension
                                       parenthesized_expression subscript)))
-  :hook ((eglot--managed-mode yaml-mode) . indent-bars-mode))
+  :hook ((eglot-managed-mode yaml-mode) . indent-bars-mode))
 
 (setq-default indent-tabs-mode nil)
 (setq-default indent-line-function 'insert-tab)
@@ -2576,6 +2594,21 @@ controls the state:
          (electric-indent-mode 0))
         ((eq electric-indent-mode nil) (electric-indent-mode 1))))
 (add-hook 'post-command-hook #'smart-electric-indent-mode)
+
+(use-package systemd)
+
+(use-package python-mode
+  :ensure nil
+  :mode "\\.py\\'"
+  :config
+  (add-to-list
+   'eglot-server-programs
+   '(python-ts-mode . ("rass" "python")))
+
+  (nox/mason-ensure 'python-ts-mode '("ruff" "ty"))
+  :custom
+  (python-indent-offset 4)
+  (python-shell-interpreter "python3"))
 
 (use-package eshell
   :commands eshell

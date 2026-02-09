@@ -74,6 +74,7 @@
   - [[#rainbow-delimeters-prettified-hex-codes--todos][Rainbow Delimeters, Prettified Hex Codes & Todos]]
   - [[#syntax-highlighting][Syntax Highlighting]]
   - [[#indentation][Indentation]]
+  - [[#languages][Languages]]
 - [[#shells--terminals][Shells & Terminals]]
   - [[#eshell][Eshell]]
   - [[#vterm][Vterm]]
@@ -158,15 +159,10 @@ Here we specify the ~libs~ directory to contains other Elisp files that we are a
 
 #+end_src
 
-#+begin_src emacs-lisp
-
-  (load custom-file 'noerror 'no-message)
-
-#+end_src
-
 ** Exec Path
 #+begin_src emacs-lisp
 
+  (load custom-file 'noerror 'no-message)
   (use-package exec-path-from-shell
     :hook
     (on-first-input . exec-path-from-shell-initialize))
@@ -612,7 +608,7 @@ We are also installing evil-collection so that we have sane evil bindings in alm
 
   (nox/leader-keys
     "p"   '(:ignore t :wk "[P]roject")
-    "SPC" '(projectile-find-file :wk "Find file in project")
+    "SPC" '(consult-projectile :wk "Find file in project")
     "p r" '(projectile-remove-known-project :wk "[R]emove Project")
     "p c" '(projectile-compile-project :wk "[C]ompile Project")
     "p s" '(+switch-or-make-project :wk "[S]witch Project"))
@@ -977,7 +973,7 @@ Created a custom hook which helps changing colors when theme changes.
 #+begin_src emacs-lisp
 
   (use-package mason
-    :hook (on-first-input . mason-ensure))
+    :hook (on-first-file . mason-ensure))
 
   (defun nox/mason-ensure (arg &optional packages)
     "Ensure PACKAGES are installed via Mason.
@@ -3085,6 +3081,7 @@ SOPS is a CLI tool to encrypt/decrypt “secrets” inside files so they can be 
 
   (defun nox/set-corfu-colors ()
     (when (featurep 'corfu)
+      (set-face-attribute 'corfu-default nil :background (doom-color 'bg))
       (set-face-attribute 'corfu-current nil :background (doom-color 'bg-alt))))
 
   (add-hook! nox/after-theme-change #'nox/set-corfu-colors)
@@ -3163,6 +3160,7 @@ Changing emacs settings so that we remove commands that do not apply to the curr
     :ensure nil
     :hook
     (prog-mode . eglot-ensure)
+    (eglot-managed-mode . nox/eglot-remove-signature-eldoc)
     :commands
     (eglot-ensure
      eglot-rename
@@ -3170,27 +3168,34 @@ Changing emacs settings so that we remove commands that do not apply to the curr
     :bind
     ([remap eldoc-doc-buffer] . eldoc-box-help-at-point)
     :config
-    (add-to-list
-     'eglot-server-programs
-     '(python-ts-mode . ("rass" "python")))
-
     ;; ensure rass is installed
     (nox/mason-ensure '("rass"))
 
+    ;; inly hint face
     (set-face-attribute 'eglot-inlay-hint-face nil
                         :inherit 'font-lock-comment-face
                         :italic t))
 
-  (nox/mason-ensure 'python-ts-mode '("ruff" "ty"))
+  (defun nox/eglot-remove-signature-eldoc ()
+    (setq-local eldoc-documentation-functions
+                (remove #'eglot-signature-eldoc-function eldoc-documentation-functions)))
 
 #+end_src
 
 Documentation.
 #+begin_src emacs-lisp
 
-  (use-package markdown-mode :defer t)
+  (use-package markdown-mode
+    :init
+    ;; hover signature help face
+    (set-face-attribute 'markdown-code-face nil
+                        :background 'unspecified))
 
-  (use-package eldoc-box :commands eldoc-box-help-at-point)
+  (use-package eldoc-box
+    :commands eldoc-box-help-at-point
+    :config
+    (nox/set-eldoc-box-colors)
+    (add-hook! nox/after-theme-change #'nox/set-eldoc-box-colors))
 
   (use-package sideline-flymake
     :hook
@@ -3199,6 +3204,14 @@ Documentation.
     :custom
     (sideline-flymake-display-mode 'line)
     (sideline-backends-right '(sideline-flymake)))
+
+  (defun nox/set-eldoc-box-colors ()
+    (set-face-attribute 'eldoc-box-border nil
+                        :background 'unspecified
+                        :inherit 'corfu-border)
+
+    (set-face-attribute 'eldoc-box-markdown-separator nil
+                        :foreground (doom-color 'bg-alt2)))
 
   (defun nox/sideline-remove-flymake-eldoc ()
     (setq-local eldoc-documentation-functions (remove #'flymake-eldoc-function eldoc-documentation-functions)))
@@ -3211,7 +3224,7 @@ Documentation.
   (use-package yasnippet
     :hook
     (on-first-file . yas-global-mode)
-    (eglot--managed-mode . nox/update-capf-eglot))
+    (eglot-managed-mode . nox/update-capf-eglot))
 
   (use-package snippy
     :ensure (:host github :repo "MiniApollo/snippy" :branch "main" :rev :newest)
@@ -3288,7 +3301,6 @@ Apheleia is an Emacs package designed to run code formatters asynchronously with
 
 #+begin_src emacs-lisp
 
-  (use-package transient)
   (use-package magit
     :hook
     (git-commit-mode . (lambda () (mixed-pitch-mode -1)))
@@ -3368,6 +3380,9 @@ Pretty fontification.
     (on-init-ui . projectile-mode)
     :custom
     (projectile-project-search-path (list nox/projects-directory)))
+
+  (use-package consult-projectile
+    :after (:all projectile consult))
 
 #+end_src
 
@@ -3494,7 +3509,7 @@ This whole section is taken from [[https://github.com/MatthewZMD/.emacs.d?tab=re
                                         list list_comprehension
                                         dictionary dictionary_comprehension
                                         parenthesized_expression subscript)))
-    :hook ((eglot--managed-mode yaml-mode) . indent-bars-mode))
+    :hook ((eglot-managed-mode yaml-mode) . indent-bars-mode))
 
 #+end_src
 
@@ -3518,6 +3533,32 @@ This section also covers indentation configuration for optimal coding experience
            (electric-indent-mode 0))
           ((eq electric-indent-mode nil) (electric-indent-mode 1))))
   (add-hook 'post-command-hook #'smart-electric-indent-mode)
+
+#+end_src
+
+** Languages
+*** Systemd
+#+begin_src emacs-lisp
+
+  (use-package systemd)
+
+#+end_src
+
+*** Python
+#+begin_src emacs-lisp
+
+  (use-package python-mode
+    :ensure nil
+    :mode "\\.py\\'"
+    :config
+    (add-to-list
+     'eglot-server-programs
+     '(python-ts-mode . ("rass" "python")))
+
+    (nox/mason-ensure 'python-ts-mode '("ruff" "ty"))
+    :custom
+    (python-indent-offset 4)
+    (python-shell-interpreter "python3"))
 
 #+end_src
 
