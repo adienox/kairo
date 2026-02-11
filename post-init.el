@@ -147,7 +147,7 @@
 
   (general-create-definer nox/org-keys
     :states  '(normal insert visual emacs)
-    :keymaps 'org-mode-map
+    :keymaps '(org-mode-map org-present-mode-map)
     :prefix "SPC"
     :global-prefix "C-SPC")
 
@@ -260,7 +260,13 @@
   "o n j" '(denote-journal-new-or-existing-entry :wk "[J]ournal"))
 
 (nox/org-keys
- "o n i" '(nox/org-dblock-insert-inbox-notes :wk "[I]nbox notes"))
+  "o h" '(:ignore t :wk "[H]eading")
+  "o h p" '(nox/org-present :wk "[P]resent")
+  "o h w" '(widen           :wk "[W]iden")
+  "o h s" '(org-narrow-to-subtree :wk "[S]ubtree narrowing")
+  "o h e" '(org-narrow-to-element :wk "[E]lement narrowing")
+  "o h b" '(org-narrow-to-block   :wk "[B]lock narrowing")
+  "o n i" '(nox/org-dblock-insert-inbox-notes :wk "[I]nbox notes"))
 
 (nox/leader-keys
   "q"   '(:ignore t :wk "[Q]uit")
@@ -1795,6 +1801,119 @@ controls the state:
   (load-theme doom-theme t)
   (doom-themes-org-config))
 
+(use-package org-agenda
+  :ensure nil
+  :after org
+  :commands org-agenda
+  :hook
+  (org-agenda-mode . olivetti-mode)
+  (org-agenda-mode . hide-mode-line-mode)
+  :bind
+  (:map org-agenda-mode-map
+        ("<escape>" . org-agenda-quit))
+  :custom
+  (org-log-done 'time)
+  (org-log-reschedule 'note)
+  (org-log-redeadline 'note)
+  (org-log-into-drawer t)
+  ;; (org-agenda-files (list nox/tasks-file nox/events-file nox/holidays-file))
+  (org-agenda-files (list nox/tasks-file))
+  (org-agenda-skip-timestamp-if-done t)
+  (org-agenda-skip-scheduled-if-done t)
+  (org-agenda-skip-deadline-if-done t)
+  (org-agenda-skip-scheduled-if-deadline-is-shown t)
+  (org-agenda-skip-timestamp-if-deadline-is-shown t)
+  (org-agenda-current-time-string "← now ──────────")
+  (org-agenda-start-on-weekday 0)
+  (org-agenda-weekend-days '(6))
+  :config
+  (set-face-attribute 'org-scheduled nil
+                      :foreground (doom-color 'fg))
+
+  (setq org-agenda-prefix-format
+        '((agenda . "  %i %?-12t")
+          (todo   . "  %i %?-12t")
+          (tags   . "  %i %?-12t")
+          (search . "  %i %?-12t")))
+
+  (setq org-todo-keywords
+        '((sequence "TODO(t)" "NEXT(n)" "IDEA(i@)" "WAIT(w@/!)" "EVNT(e)" "|" "DONE(d!)" "CANC(c@)")))
+
+  (setq org-agenda-category-icon-alist
+        '(("tasks"     ("") nil nil :ascent center)
+          ("holidays"  ("") nil nil :ascent center)
+          ("events"    ("") nil nil :ascent center)))
+
+  (add-hook! org-agenda-mode
+    (setq-local cursor-type nil
+                evil-normal-state-cursor nil
+                evil-insert-state-cursor nil)))
+
+(use-package org-fragtog
+  :defer t
+  :hook
+  (org-mode . (lambda ()
+                (add-hook! evil-insert-state-entry :local #'org-fragtog-mode)
+                (add-hook! evil-insert-state-exit  :local #'org-latex-preview)
+                (add-hook! evil-insert-state-exit  :local (org-fragtog-mode -1)))))
+
+(use-package org-present
+  :commands org-present-mode
+  :custom
+  (org-present-hide-stars-in-headings t)
+  :hook
+  (org-present-mode . nox/org-present-mode)
+  (org-present-mode-quit . nox/org-present-quit))
+
+(defun nox/org-present ()
+  "Start presentation from the beginning of the file."
+  (interactive)
+  (goto-line 1)
+  (org-present))
+
+(defun nox/org-present-mode ()
+  (setq nox/org-level-1-remap (face-remap-add-relative 'org-level-1 :weight 'bold))
+  (hide-mode-line-mode)
+  (org-present-big)
+  (org-display-inline-images)
+  (org-present-hide-cursor)
+  (org-present-read-only))
+
+(defun nox/org-present-quit ()
+  (face-remap-remove-relative nox/org-level-1-remap)
+  (hide-mode-line-mode -1)
+  (org-present-small)
+  (org-remove-inline-images)
+  (org-present-show-cursor)
+  (org-present-read-write))
+
+(setq-default prettify-symbols-alist
+              '(("#+begin_src emacs-lisp" . "")
+                ("#+begin_src elisp" . "")
+                ("#+begin_src nix" . "")
+                ("#+begin_src shell" . "")
+                (":ATTACH:" . "🔗")
+                ("#+attr_org:" . "")
+                ;; better start and end
+                ("#+begin_src" . "»")
+                ("#+end_src" . "«")
+                ("#+BEGIN:" . "»")
+                ("#+END:" . "«")
+                ("#+begin_example" . "»")
+                ("#+end_example" . "«")
+                ;; quote
+                ("#+begin_quote" . "")
+                ("#+end_quote" . "")
+                ;; babel
+                ("#+RESULTS:" . "󰥤")
+                (":tangle" . "󰯊")
+                (":mkdirp yes" . "")
+                ;; elisp
+                ("lambda" . "󰘧")
+                ("(interactive)" . "")))
+
+  (setq prettify-symbols-unprettify-at-point 'right-edge)
+
 (use-package org
   :ensure nil
   :defer t
@@ -1860,108 +1979,6 @@ controls the state:
    "/DONE"
    'file))
 
-(use-package org-agenda
-  :ensure nil
-  :after org
-  :commands org-agenda
-  :hook
-  (org-agenda-mode . olivetti-mode)
-  (org-agenda-mode . hide-mode-line-mode)
-  :bind
-  (:map org-agenda-mode-map
-        ("<escape>" . org-agenda-quit))
-  :custom
-  (org-log-done 'time)
-  (org-log-reschedule 'note)
-  (org-log-redeadline 'note)
-  (org-log-into-drawer t)
-  ;; (org-agenda-files (list nox/tasks-file nox/events-file nox/holidays-file))
-  (org-agenda-files (list nox/tasks-file))
-  (org-agenda-skip-timestamp-if-done t)
-  (org-agenda-skip-scheduled-if-done t)
-  (org-agenda-skip-deadline-if-done t)
-  (org-agenda-skip-scheduled-if-deadline-is-shown t)
-  (org-agenda-skip-timestamp-if-deadline-is-shown t)
-  (org-agenda-current-time-string "← now ──────────")
-  (org-agenda-start-on-weekday 0)
-  (org-agenda-weekend-days '(6))
-  :config
-  (set-face-attribute 'org-scheduled nil
-                      :foreground (doom-color 'fg))
-
-  (setq org-agenda-prefix-format
-        '((agenda . "  %i %?-12t")
-          (todo   . "  %i %?-12t")
-          (tags   . "  %i %?-12t")
-          (search . "  %i %?-12t")))
-
-  (setq org-todo-keywords
-        '((sequence "TODO(t)" "NEXT(n)" "IDEA(i@)" "WAIT(w@/!)" "EVNT(e)" "|" "DONE(d!)" "CANC(c@)")))
-
-  (setq org-agenda-category-icon-alist
-        '(("tasks"     ("") nil nil :ascent center)
-          ("holidays"  ("") nil nil :ascent center)
-          ("events"    ("") nil nil :ascent center)))
-
-  (add-hook! org-agenda-mode
-    (setq-local cursor-type nil
-                evil-normal-state-cursor nil
-                evil-insert-state-cursor nil)))
-
-(use-package org-fragtog
-  :defer t
-  :hook
-  (org-mode . (lambda ()
-                (add-hook! evil-insert-state-entry :local #'org-fragtog-mode)
-                (add-hook! evil-insert-state-exit  :local #'org-latex-preview)
-                (add-hook! evil-insert-state-exit  :local (org-fragtog-mode -1)))))
-
-(use-package org-superstar
-  :hook
-  (org-mode . org-superstar-mode)
-  :custom
-  (org-superstar-headline-bullets-list
-   '("◉" "◈" "○" "▷"))
-  (org-superstar-cycle-headline-bullets nil)
-  (org-superstar-remove-leading-stars t)
-  ;; 42 = *
-  ;; 43 = +
-  ;; 45 = -
-  (org-superstar-item-bullet-alist '((42 . 8226) (43 . 10148) (45 . 8226)))
-  :config
-  (set-face-attribute 'org-superstar-leading nil :height 1.3)
-  (set-face-attribute 'org-superstar-header-bullet nil
-                      :height 1.2
-                      :inherit 'fixed-pitch)
-  (set-face-attribute 'org-superstar-item nil :height 1.2))
-
-(setq-default prettify-symbols-alist
-              '(("#+begin_src emacs-lisp" . "")
-                ("#+begin_src elisp" . "")
-                ("#+begin_src nix" . "")
-                ("#+begin_src shell" . "")
-                (":ATTACH:" . "🔗")
-                ("#+attr_org:" . "")
-                ;; better start and end
-                ("#+begin_src" . "»")
-                ("#+end_src" . "«")
-                ("#+BEGIN:" . "»")
-                ("#+END:" . "«")
-                ("#+begin_example" . "»")
-                ("#+end_example" . "«")
-                ;; quote
-                ("#+begin_quote" . "")
-                ("#+end_quote" . "")
-                ;; babel
-                ("#+RESULTS:" . "󰥤")
-                (":tangle" . "󰯊")
-                (":mkdirp yes" . "")
-                ;; elisp
-                ("lambda" . "󰘧")
-                ("(interactive)" . "")))
-
-  (setq prettify-symbols-unprettify-at-point 'right-edge)
-
 (use-package toc-org
   :hook (org-mode . toc-org-mode))
 
@@ -1989,6 +2006,25 @@ controls the state:
   (add-to-list 'org-structure-template-alist '("go" . "src go"))
   (add-to-list 'org-structure-template-alist '("nix" . "src nix"))
   (add-to-list 'org-structure-template-alist '("py" . "src python")))
+
+(use-package org-superstar
+  :hook
+  (org-mode . org-superstar-mode)
+  :custom
+  (org-superstar-headline-bullets-list
+   '("◉" "◈" "○" "▷"))
+  (org-superstar-cycle-headline-bullets nil)
+  (org-superstar-remove-leading-stars t)
+  ;; 42 = *
+  ;; 43 = +
+  ;; 45 = -
+  (org-superstar-item-bullet-alist '((42 . 8226) (43 . 10148) (45 . 8226)))
+  :config
+  (set-face-attribute 'org-superstar-leading nil :height 1.3)
+  (set-face-attribute 'org-superstar-header-bullet nil
+                      :height 1.2
+                      :inherit 'fixed-pitch)
+  (set-face-attribute 'org-superstar-item nil :height 1.2))
 
 (use-package consult
   ;; Enable automatic preview at point in the *Completions* buffer.
@@ -2210,14 +2246,15 @@ controls the state:
                '(execute-extended-command
                  (+vertico-transform-functions . +vertico-highlight-enabled-mode))))
 
-(use-package sops
-  :hook
-  (yaml-ts-mode . sops-mode)
-  :bind
-  (:map yaml-ts-mode-map
-        ("C-c C-c" . sops-save-file)
-        ("C-c C-k" . sops-cancel)
-        ("C-c C-d" . sops-edit-file)))
+;;
+ (use-package sops
+   :hook
+   (yaml-ts-mode . sops-mode)
+   :bind
+   (:map yaml-ts-mode-map
+         ("C-c C-c" . sops-save-file)
+         ("C-c C-k" . sops-cancel)
+         ("C-c C-d" . sops-edit-file)))
 
 (use-package corfu
   :hook
