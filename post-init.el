@@ -3,6 +3,7 @@
 (setq init-start-time (current-time))
 
 (load custom-file 'noerror 'no-message)
+
 (use-package exec-path-from-shell
   :hook
   (on-first-input . exec-path-from-shell-initialize))
@@ -26,6 +27,7 @@
   (display-battery-mode 1)     ;; Enable displaying battery info in modline.
   (winner-mode 1)              ;; Easily undo window configuration changes.
   (line-number-mode 1)
+  (tab-bar-mode -1)
   (column-number-mode 1)
   :custom
   (dictionary-server "dict.org")        ;; set dictionary server.
@@ -161,9 +163,12 @@
 (nox/leader-keys
   "b"   '(:ignore t :wk "[B]uffer")
   "b b" '(consult-buffer :wk "[B]uffer Switch")
-  "b i" '(persp-ibuffer :wk "[I]buffer")
+  "b i" '(ibuffer :wk "[I]buffer")
   "b k" '(kill-current-buffer :wk "[K]ill Buffer")
+  "b s" '(scratch-buffer :wk "[S]cratch Buffer")
   "b n" '(next-buffer :wk "[N]ext Buffer")
+  "b m" '((lambda () (interactive) (pop-to-buffer "*Messages*")) :wk "[M]essages buffer")
+  "b w" '((lambda () (interactive) (pop-to-buffer "*Warnings*")) :wk "[W]arnings buffer")
   "b p" '(previous-buffer :wk "[P]revious Buffer")
   "b r" '(revert-buffer :wk "[R]eload Buffer"))
 
@@ -196,7 +201,6 @@
 
 (nox/leader-keys
   "f"   '(:ignore t :wk "[F]ile")
-  "f c" `((lambda () (interactive) (find-file nox/emacs-config-file)) :wk "[C]onfig File")
   "f s" '(save-buffer :wk "[S]ave Buffer")
   "f b" '(bookmark-set :wk "[B]ookmark Set")
   "f d" '(bufferfile-delete :wk "[D]elete File")
@@ -271,15 +275,14 @@
 (nox/leader-keys
   "q"   '(:ignore t :wk "[Q]uit")
   "q f" '(delete-frame :wk "[F]rame delete")
-  "q r" '(nox/restore-perspectives :wk "[R]estore perspectives")
   "q K" '(kill-emacs :wk "[K]ill emacs"))
 
 (nox/leader-keys
   "p"   '(:ignore t :wk "[P]roject")
-  "SPC" '(consult-projectile :wk "Find file in project")
-  "p r" '(projectile-remove-known-project :wk "[R]emove Project")
-  "p c" '(projectile-compile-project :wk "[C]ompile Project")
-  "p s" '(+switch-or-make-project :wk "[S]witch Project"))
+  "SPC" '(consult-project-extra-find :wk "Find file in project")
+  "p r" '(project-forget-project :wk "[R]emove Project")
+  "p c" '(compile-multi :wk "[C]ompile Project")
+  "p s" '(tabspaces-open-or-create-project-and-workspace :wk "[S]witch Project"))
 
 (defun nox/reload-config()
   "Reload Emacs config"
@@ -320,13 +323,12 @@
 
 (nox/leader-keys
   "TAB"   '(:ignore t :wk "Workspaces")
-  "TAB TAB" '(+list-workspaces :wk "List Workspaces")
-  "TAB [" '(persp-prev :wk "Previous Workspace")
-  "TAB ]" '(persp-next :wk "Next Workspace")
-  "TAB d" '((lambda () (interactive) (persp-kill (persp-name (persp-curr)))) :wk "Delete workspace")
-  "TAB m" '((lambda () (interactive) (pop-to-buffer "*Messages*")) :wk "Messages buffer")
-  "TAB w" '((lambda () (interactive) (pop-to-buffer "*Warnings*")) :wk "Warnings buffer")
-  "TAB n" '(persp-switch :wk "New Workspace"))
+  "TAB TAB" '(tabspaces-show-workspaces :wk "List Workspaces")
+  "TAB [" '(tab-previous :wk "Previous Workspace")
+  "TAB ]" '(tab-next :wk "Next Workspace")
+  "TAB d" '(tabspaces-kill-buffers-close-workspace :wk "[D]elete workspace")
+  "TAB s" '(tabspaces-save-current-project-session :wk "[S]ave workspace")
+  "TAB n" '(tabspaces-switch-or-create-workspace :wk "[N]ew Workspace"))
 
 (nox/leader-keys
   "RET" '(consult-bookmark :wk "Jump to Bookmark")
@@ -539,28 +541,6 @@
 ;; run `nox/after-theme-change-hook' after load-theme
 (advice-add 'load-theme :after #'nox/run-after-theme-change-hook)
 
-(use-package mason
-  :hook (on-first-file . mason-ensure))
-
-(defun nox/mason-ensure (arg &optional packages)
-  "Ensure PACKAGES are installed via Mason.
-If ARG is a symbol (mode), add a Doom-style hook for it.
-If ARG is a list (packages), install immediately."
-  (if (symbolp arg)
-      ;; ARG is a mode
-      (when packages
-        (add-hook! arg
-          (dolist (pkg packages)
-            (unless (mason-installed-p pkg)
-              (ignore-errors
-                (mason-install pkg))))))
-    ;; ARG is actually the packages list, install now
-    (let ((pkgs arg))
-      (dolist (pkg pkgs)
-        (unless (mason-installed-p pkg)
-          (ignore-errors
-            (mason-install pkg)))))))
-
 (use-package avy
   :commands
   (evil-avy-goto-char-timer
@@ -760,36 +740,34 @@ Copy only the subtree body to the kill ring, set the heading to DONE, and signal
 
 (advice-add 'denote-journal-new-or-existing-entry :before
             (lambda (&rest _args)
-              (persp-switch denote-workspace-name)))
+              (tabspaces-switch-or-create-workspace denote-workspace-name)))
 
-(advice-add 'kill-current-buffer :after #'persp-kill-if-no-denote-buffer)
+(advice-add 'kill-current-buffer :after #'workspace-kill-if-no-denote-buffer)
 
 (defun nox/denote-search ()
   "Uses `denote-open-or-create' as its backend and switches workspace."
   (interactive)
   (condition-case nil
       (progn
-        (persp-switch denote-workspace-name)
+        (tabspaces-switch-or-create-workspace denote-workspace-name)
         (call-interactively 'denote-open-or-create))
     ((quit error user-error)
-     (persp-kill-if-no-denote-buffer))))
-
-(defun persp-denote-buffer-p (buf)
-  "Return non-nil if BUF is a live Denote buffer."
+     (workspace-kill-if-no-denote-buffer))))
+;;
+(defun denote-buffer-p (buf)
   (when (buffer-live-p buf)
-    (let ((name (buffer-name buf)))
-      (and (stringp name)
-           (string-prefix-p denote-buffer-name-prefix name)))))
+    (when-let ((file (buffer-file-name buf)))
+      (string-match-p denote-id-regexp file))))
 
-(defun persp-kill-if-no-denote-buffer ()
+(defun workspace-kill-if-no-denote-buffer ()
   "Kill the current perspective if it contains no Denote buffers."
   (interactive)
-  (let ((curr-persp (persp-curr)))
-    (when (and (string= (persp-name curr-persp) denote-workspace-name)
-               (not (seq-some #'persp-denote-buffer-p
-                              (persp-buffers curr-persp))))
-      (persp-kill (persp-name curr-persp))
-      (message "Workspace killed because it has no Denote buffer."))))
+  (let ((curr-workspace (tabspaces--current-tab-name)))
+    (when (and (string= curr-workspace denote-workspace-name)
+               (not (seq-some #'denote-buffer-p
+                              (tabspaces--buffer-list))))
+      (tabspaces-kill-buffers-close-workspace)
+      (message "Workspace killed because it has no notes buffer."))))
 
 (defface note-title-face
   '((t :height 1.6
@@ -963,6 +941,16 @@ use journal metadata functions. Otherwise, use Denote metadata functions."
       (if denote-hide-metadata-mode
           (funcall hide-fn)
         (funcall show-fn)))))
+
+(defun nox/local-highlights (&rest _)
+  (when-let* ((file (buffer-file-name))
+              ((denote-buffer-p (current-buffer))))
+    (setq-local koreader/exports-directory
+                (concat
+                 (expand-file-name
+                  (denote-retrieve-filename-identifier file)
+                  org-attach-id-dir)
+                 "/"))))
 
 (use-package dired
   :ensure nil
@@ -1275,30 +1263,60 @@ If opened externally, remove the 'unread' tag from the entry."
   (on-first-input . global-jinx-mode)
   :bind* (("C-/" . jinx-correct)))
 
+(defvar nox/kindle-url "http://localhost:5656"
+  "Base URL where the KOReader HTTP server is running.")
+
+(defun nox/kindle-call (endpoint)
+  "Send a simple asynchronous GET request to KOReader ENDPOINT.
+ENDPOINT should be a string beginning with \"/koreader/...\"."
+  (url-retrieve (concat nox/kindle-url endpoint) #'ignore))
+
 (defun nox/kindle-first-page ()
-  "Go to the first page of the book."
+  "Jump to the beginning of the current book in KOReader."
   (interactive)
-  (url-retrieve "http://kindle:1337/koreader/event/GoToBeginning" #'ignore))
+  (nox/kindle-call "/koreader/event/GoToBeginning"))
 
 (defun nox/kindle-next-bookmark ()
-  "Go to the next bookmark."
+  "Move to the next bookmark relative to the current page."
   (interactive)
-  (url-retrieve "http://kindle:1337/koreader/event/GotoNextBookmarkFromPage" #'ignore))
+  (nox/kindle-call "/koreader/event/GotoNextBookmarkFromPage"))
 
 (defun nox/kindle-prev-bookmark ()
-  "Go to the previous bookmark."
+  "Move to the previous bookmark relative to the current page."
   (interactive)
-  (url-retrieve "http://kindle:1337/koreader/event/GotoPreviousBookmarkFromPage" #'ignore))
+  (nox/kindle-call "/koreader/event/GotoPreviousBookmarkFromPage"))
 
 (defun nox/kindle-next-page ()
-  "Go to the next page."
+  "Advance forward by one page in KOReader."
   (interactive)
-  (url-retrieve "http://kindle:1337/koreader/event/GotoViewRel/1 " #'ignore))
+  (nox/kindle-call "/koreader/event/GotoViewRel/1"))
 
 (defun nox/kindle-prev-page ()
-  "Go to the prev page."
+  "Go back by one page in KOReader."
   (interactive)
-  (url-retrieve "http://kindle:1337/koreader/event/GotoViewRel/-1 " #'ignore))
+  (nox/kindle-call "/koreader/event/GotoViewRel/-1"))
+
+(use-package mason
+  :hook (on-first-file . mason-ensure))
+
+(defun nox/mason-ensure (arg &optional packages)
+  "Ensure PACKAGES are installed via Mason.
+If ARG is a symbol (mode), add a Doom-style hook for it.
+If ARG is a list (packages), install immediately."
+  (if (symbolp arg)
+      ;; ARG is a mode
+      (when packages
+        (add-hook! arg
+          (dolist (pkg packages)
+            (unless (mason-installed-p pkg)
+              (ignore-errors
+                (mason-install pkg))))))
+    ;; ARG is actually the packages list, install now
+    (let ((pkgs arg))
+      (dolist (pkg pkgs)
+        (unless (mason-installed-p pkg)
+          (ignore-errors
+            (mason-install pkg)))))))
 
 (use-package eros
   :hook
@@ -1399,9 +1417,29 @@ controls the state:
         (insert (concat (string-remove-suffix "..." journal) "\n"))))
     (message "Journal entry added.")))
 
-(use-package wasabi
-  :commands wasabi
-  :ensure (:host github :repo "xenodium/wasabi" :branch "main"))
+(use-package nov
+  :mode ("\\.epub\\'" . nov-mode)
+  :hook
+  (nov-mode . olivetti-mode)
+  (nov-mode . hide-mode-line-mode)
+  (nov-post-html-render . koreader/highlight-chapter)
+  :custom
+  (nov-text-width t)
+  (koreader/exports-directory "~/Documents/notes/ko-inbox/exports/")
+  (koreader/books-directory "~/Documents/ko-books/")
+  :config
+  (require 'koreader-epub-highlights))
+
+(with-eval-after-load 'evil
+  (evil-define-key 'normal nov-mode-map
+    (kbd "M-j") 'koreader/nov-next-highlight
+    (kbd "M-k") 'koreader/nov-previous-highlight
+    (kbd "?") 'koreader/show-note-at-point))
+
+(advice-add 'koreader/nov-next-highlight :after #'good-scroll-center-cursor)
+(advice-add 'koreader/nov-previous-highlight :after #'good-scroll-center-cursor)
+
+(use-package posframe)
 
 (defun nox/buffer-regex-builder (names)
   "Return a regex that matches *NAMES* buffers."
@@ -1443,6 +1481,20 @@ controls the state:
          (slot . 1)
          (window-dedicated . t)
          (window-parameters . ((mode-line-format . none))))
+        ((major-mode . koreader/highlights-buffer-mode)
+         (display-buffer-in-side-window)
+         (side . right)
+         (window-width . 0.5)
+         (slot . 1)
+         (window-dedicated . t)
+         (window-parameters . ((mode-line-format . none))))
+        ((major-mode . nov-mode)
+         (display-buffer-in-side-window)
+         (side . right)
+         (window-width . 0.5)
+         (slot . 1)
+         (window-dedicated . t)
+         (window-parameters . ((mode-line-format . none))))
         ("*COMMIT_EDITMSG"
          (display-buffer-in-direction)
          (direction . leftmost)
@@ -1453,13 +1505,19 @@ controls the state:
          (direction . right)
          (window-width . 0.5))
         ;; Special Windows
-        (,(nox/buffer-regex-builder '("reddigg-comments" "vterm" "eshell" "eldoc" "use-package statistics" "compilation"))
+        (,(nox/buffer-regex-builder '("reddigg-comments" "vterm" "eshell" "eldoc" "use-package statistics"))
          (display-buffer-in-side-window)
          (side . bottom)
          (window-height . 0.4)
          (slot . 1)
          (window-dedicated . t)
          (window-parameters . ((mode-line-format . none))))
+        ("*compilation*"
+         (display-buffer-in-side-window)
+         (side . bottom)
+         (window-height . 0.4)
+         (slot . 1)
+         (window-dedicated . t))
         ;; Help windows
         ((or (major-mode . Info-mode)
              (major-mode . helpful-mode)
@@ -1541,52 +1599,12 @@ controls the state:
 
 (use-package ibuffer
   :ensure nil
-  :commands (ibuffer persp-ibuffer)
+  :commands ibuffer
+  :bind
+  ([remap ibuffer-visit-buffer] . tabspaces-ibuffer-switch-buffer-and-tab)
   :hook
   (ibuffer-mode . (lambda () (display-line-numbers-mode -1)))
   (ibuffer-mode . (lambda () (visual-line-mode -1))))
-
-(use-package perspective
-  :hook
-  (on-first-input . persp-mode)
-  :custom
-  (persp-mode-prefix-key (kbd "C-c b"))
-  (persp-initial-frame-name "main")
-  (persp-sort 'created)
-  :config
-  (persp-turn-off-modestring))
-
-(defun +list-workspaces ()
-  "List all workspaces, numbering them and highlighting the current one."
-  (interactive)
-  (let* ((all-persp (persp-names))
-         (current (persp-name (persp-curr)))
-         (msg (mapconcat
-               (lambda (p)
-                 (let* ((i (1+ (cl-position p all-persp :test #'equal)))
-                        (label (format "[%d] %s" i p)))
-                   (if (equal p current)
-                       (propertize label 'face `(:weight bold :foreground ,(doom-color 'orange)))
-                     label)))
-               all-persp
-               " ")))  ; <-- just space between items
-    (message "Workspaces: %s" msg)))
-
-(add-hook! persp-switch #'+list-workspaces)
-
-(defun +workspace-switch-advice (&rest _)
-       (if (= (length (persp-names)) 1)
-           (message "No other workspace.")))
-
-(advice-add 'persp-next :before #'+workspace-switch-advice)
-(advice-add 'persp-prev :before #'+workspace-switch-advice)
-
-(defun +project-workspace-create (&rest _)
-  (persp-switch (file-name-nondirectory (directory-file-name (projectile-acquire-root))))
-  (projectile-find-file)
-  (+list-workspaces))
-
-(setq projectile-switch-project-action '+project-workspace-create)
 
 ;; truncate line with …
 (set-display-table-slot standard-display-table 'truncation (make-glyph-code ?…))
@@ -1699,13 +1717,14 @@ controls the state:
   (on-init-ui . doom-modeline-mode)
   :init
   (setq doom-modeline-support-imenu t)
-  :config
-  (setq doom-modeline-major-mode-icon nil)
-  (setq find-file-visit-truename t)
-  (setq doom-modeline-icon t)
-  (setq doom-modeline-buffer-encoding nil)
-  (setq doom-modeline-percent-position nil)
-  (setq doom-modeline-height 36))
+  :custom
+  (doom-modeline-workspace-name nil)
+  (doom-modeline-major-mode-icon nil)
+  (find-file-visit-truename t)
+  (doom-modeline-icon t)
+  (doom-modeline-buffer-encoding nil)
+  (doom-modeline-percent-position nil)
+  (doom-modeline-height 36))
 
 (use-package hide-mode-line :commands hide-mode-line-mode)
 
@@ -1801,6 +1820,26 @@ controls the state:
   (load-theme doom-theme t)
   (doom-themes-org-config))
 
+(use-package org
+  :ensure nil
+  :defer t
+  :config
+  (require 'org-protocol)
+  (setq org-default-notes-file nox/inbox-file)
+  (setq org-capture-templates
+        '(("w" "Web" entry (file nox/inbox-file)
+           "* %?\n%i\n[[%:link][%:description]]"))))
+
+(add-hook! org-capture-mode
+  (when (equal "emacs-capture" (frame-parameter nil 'name))
+    (progn
+      (delete-other-windows)
+      (hide-mode-line-mode))))
+
+(add-hook! org-capture-after-finalize
+  (when (equal "emacs-capture" (frame-parameter nil 'name))
+    (delete-frame)))
+
 (use-package org-agenda
   :ensure nil
   :after org
@@ -1849,13 +1888,13 @@ controls the state:
                 evil-normal-state-cursor nil
                 evil-insert-state-cursor nil)))
 
-(use-package org-fragtog
-  :defer t
-  :hook
-  (org-mode . (lambda ()
-                (add-hook! evil-insert-state-entry :local #'org-fragtog-mode)
-                (add-hook! evil-insert-state-exit  :local #'org-latex-preview)
-                (add-hook! evil-insert-state-exit  :local (org-fragtog-mode -1)))))
+;; (use-package org-fragtog
+;;   :defer t
+;;   :hook
+;;   (org-mode . (lambda ()
+;;                 (add-hook! evil-insert-state-entry :local #'org-fragtog-mode)
+;;                 (add-hook! evil-insert-state-exit  :local #'org-latex-preview)
+;;                 (add-hook! evil-insert-state-exit  :local (org-fragtog-mode -1)))))
 
 (use-package org-present
   :commands org-present-mode
@@ -2124,6 +2163,7 @@ controls the state:
              embark-prefix-help-command)
   :bind*
   (("C-'" . embark-act)
+   ([remap describe-bindings] . embark-bindings)
    ("C-;" . embark-dwim))
   (:map embark-general-map
         ("G" . gptel-send)
@@ -2246,15 +2286,43 @@ controls the state:
                '(execute-extended-command
                  (+vertico-transform-functions . +vertico-highlight-enabled-mode))))
 
-;;
- (use-package sops
-   :hook
-   (yaml-ts-mode . sops-mode)
-   :bind
-   (:map yaml-ts-mode-map
-         ("C-c C-c" . sops-save-file)
-         ("C-c C-k" . sops-cancel)
-         ("C-c C-d" . sops-edit-file)))
+(use-package project
+  :ensure nil
+  :custom
+  (project-vc-extra-root-markers
+   '("pyproject.toml"
+     "package.json"
+     ".project"
+     ".git")))
+
+(use-package consult-project-extra
+  :commands consult-project-extra-find
+  :custom (consult-project-function #'consult-project-extra-project-fn))
+
+(use-package compile
+  :ensure nil
+  :hook
+  (compilation-filter . ansi-color-compilation-filter)
+  :custom
+  (compilation-scroll-output t)
+  (compilation-ask-about-save nil)
+  :config
+  (require 'ansi-color))
+
+(use-package compile-multi :commands compile-multi)
+
+(use-package consult-compile-multi
+  :after compile-multi
+  :config (consult-compile-multi-mode))
+
+(use-package compile-multi-nerd-icons
+  :after nerd-icons-completion
+  :after compile-multi)
+
+(use-package compile-multi-embark
+  :after embark
+  :after compile-multi
+  :config (compile-multi-embark-mode +1))
 
 (use-package corfu
   :hook
@@ -2267,17 +2335,21 @@ controls the state:
   (corfu-auto t)                      ;; Enable auto completion
   (corfu-auto-prefix 2)               ;; Enable auto completion
   (corfu-auto-delay 0.24)             ;; Enable auto completion
-  (corfu-preview-current 'insert)     ;; Disable current candidate preview
+  (corfu-preview-current 'insert)     ;; Enable current candidate preview
   (corfu-on-exact-match nil)          ;; Configure handling of exact matches
   (corfu-scroll-margin 5)             ;; Use scroll margin
   (corfu-quit-at-boundary 'separator) ;; Quit completion unless seperator
   :bind
   (:map corfu-map
-        ("M-SPC" . corfu-insert-separator))
+        ("M-SPC"      . corfu-insert-separator)
+        ("C-j"        . corfu-next)
+        ("C-k"        . corfu-previous)
+        ("S-<return>" . corfu-insert)
+        ("RET"        . nil))
   :config
   (set-face-attribute 'corfu-default nil :inherit 'fixed-pitch)
   (nox/set-corfu-colors)
-  (add-hook 'evil-insert-state-exit-hook #'corfu-quit))
+  (add-hook! evil-insert-state-exit #'corfu-quit))
 
 (defun nox/set-corfu-colors ()
   (when (featurep 'corfu)
@@ -2285,6 +2357,22 @@ controls the state:
     (set-face-attribute 'corfu-current nil :background (doom-color 'bg-alt))))
 
 (add-hook! nox/after-theme-change #'nox/set-corfu-colors)
+
+(use-package completion-preview
+  :ensure nil
+  :bind (:map completion-preview-active-mode-map
+              ("C-i" . completion-preview-insert)
+              ("C-j" . completion-preview-next-candidate)
+              ("C-k" . completion-preview-prev-candidate))
+  :custom
+  (completion-preview-minimum-symbol-length 1)
+  :config
+  (set-face-attribute 'completion-preview-exact nil
+                      :underline 'unspecified)
+  (set-face-attribute 'completion-preview-common nil
+                      :underline 'unspecified))
+
+(add-hook! completion-preview-mode (corfu-mode -1))
 
 (use-package nerd-icons-corfu
   :after corfu
@@ -2326,87 +2414,31 @@ controls the state:
   (add-hook 'completion-at-point-functions #'cape-file)         ;; file name completion
   (add-hook 'completion-at-point-functions #'cape-keyword))
 
-(use-package eglot
-  :ensure nil
+(use-package sops
   :hook
-  (prog-mode . eglot-ensure)
-  (eglot-managed-mode . nox/eglot-remove-signature-eldoc)
-  :commands
-  (eglot-ensure
-   eglot-rename
-   eglot-format-buffer)
+  (yaml-ts-mode . sops-mode)
   :bind
-  ([remap eldoc-doc-buffer] . eldoc-box-help-at-point)
+  (:map yaml-ts-mode-map
+        ("C-c C-c" . sops-save-file)
+        ("C-c C-k" . sops-cancel)
+        ("C-c C-d" . sops-edit-file)))
+
+(use-package kirigami
   :config
-  ;; ensure rass is installed
-  (nox/mason-ensure '("rass"))
+  (with-eval-after-load 'evil
+    (define-key evil-normal-state-map "zo" 'kirigami-open-fold)
+    (define-key evil-normal-state-map "zO" 'kirigami-open-fold-rec)
+    (define-key evil-normal-state-map "zc" 'kirigami-close-fold)
+    (define-key evil-normal-state-map "za" 'kirigami-toggle-fold)
+    (define-key evil-normal-state-map "zr" 'kirigami-open-folds)
+    (define-key evil-normal-state-map "zm" 'kirigami-close-folds)))
 
-  ;; inly hint face
-  (set-face-attribute 'eglot-inlay-hint-face nil
-                      :inherit 'font-lock-comment-face
-                      :italic t))
-
-(defun nox/eglot-remove-signature-eldoc ()
-  (setq-local eldoc-documentation-functions
-              (remove #'eglot-signature-eldoc-function eldoc-documentation-functions)))
-
-(use-package markdown-mode
-  :init
-  ;; hover signature help face
-  (set-face-attribute 'markdown-code-face nil
-                      :background 'unspecified))
-
-(use-package eldoc-box
-  :commands eldoc-box-help-at-point
-  :config
-  (nox/set-eldoc-box-colors)
-  (add-hook! nox/after-theme-change #'nox/set-eldoc-box-colors))
-
-(use-package sideline-flymake
+(use-package treesit-fold
   :hook
-  (flymake-mode . sideline-mode)
-  (sideline-mode . nox/sideline-remove-flymake-eldoc)
-  :custom
-  (sideline-flymake-display-mode 'line)
-  (sideline-backends-right '(sideline-flymake)))
-
-(defun nox/set-eldoc-box-colors ()
-  (set-face-attribute 'eldoc-box-border nil
-                      :background 'unspecified
-                      :inherit 'corfu-border)
-
-  (set-face-attribute 'eldoc-box-markdown-separator nil
-                      :foreground (doom-color 'bg-alt2)))
-
-(defun nox/sideline-remove-flymake-eldoc ()
-  (setq-local eldoc-documentation-functions (remove #'flymake-eldoc-function eldoc-documentation-functions)))
-
-(use-package yasnippet
-  :hook
-  (on-first-file . yas-global-mode)
-  (eglot-managed-mode . nox/update-capf-eglot))
-
-(use-package snippy
-  :ensure (:host github :repo "MiniApollo/snippy" :branch "main" :rev :newest)
-  :hook (yas-global-mode . global-snippy-minor-mode)
-  :custom
-  (snippy-global-languages '("global"))
+  (prog-mode . treesit-fold-mode)
   :config
-  (snippy-install-or-update-snippets)
-  (add-hook 'completion-at-point-functions #'snippy-capf))
-
-(use-package yasnippet-capf
-  :after cape
-  :config
-  (add-hook 'completion-at-point-functions #'yasnippet-capf))
-
-(defun cape-eglot-yasnippet ()
-  (cape-wrap-super #'eglot-completion-at-point #'yasnippet-capf #'snippy-capf))
-
-(defun nox/update-capf-eglot ()
-  "Adds snippets completion to eglot."
-  (remove-hook! 'completion-at-point-functions :local #'eglot-completion-at-point)
-  (add-hook! 'completion-at-point-functions :local #'cape-eglot-yasnippet))
+  (set-face-attribute 'treesit-fold-replacement-face nil
+                      :box 'unspecified))
 
 (use-package apheleia
   :commands apheleia-mode
@@ -2476,133 +2508,6 @@ controls the state:
   ;; Enable default keybindings (e.g. for commenting on issues, prs, ...)
   (consult-gh-enable-default-keybindings))
 
-(use-package ligature
-  :hook (on-first-input . global-ligature-mode)
-  :config
-  ;; Enable the "www" ligature in every possible major mode
-  (ligature-set-ligatures 't '("www"))
-  ;; Enable traditional ligature support in eww-mode, if the
-  ;; `variable-pitch' face supports it
-  (ligature-set-ligatures 'eww-mode '("ff" "fi" "ffi"))
-  ;; Enable all Cascadia Code ligatures in programming modes
-  (ligature-set-ligatures '(prog-mode org-mode)
-                          '("|||>" "<|||" "<==>" "<!--" "####" "~~>" "***" "||=" "||>"
-                            ":::" "::=" "=:=" "===" "==>" "=!=" "=>>" "=<<" "=/=" "!=="
-                            "!!." ">=>" ">>=" ">>>" ">>-" ">->" "->>" "-->" "---" "-<<"
-                            "<~~" "<~>" "<*>" "<||" "<|>" "<$>" "<==" "<=>" "<=<" "<->"
-                            "..." "+++" "/==" "///" "_|_" "www" "&&" "^=" "~~" "~@"
-                            "~=" "~>" "~-" "**" "*>" "*/" "||" "|}" "|]" "=>" "!="
-                            "!!" ">:" "\\\\" "://" "..<" "</>" "###" "#_(" "<<<" "<+>"
-                            ">=" ">>" ">-" "-~" "-|" "->" "--" "-<" "<~" "<*" "<|" "<:"
-                            "<$" "<=" "<>" "<-" "<<" "<+" "</" "#{" "#[" "#:" "#=" "#!"
-                            "##" "#(" "#?" "#_" "%%" ".=" ".-" ".." ".?" "+>" "++" "?:"
-                            "?=" "?." "??" ";;" "/*" "/=" "/>" "//" "__" "~~" "(*" "*)"
-                            "<--" "<-<" "<<=" "<<-")))
-
-(use-package projectile
-  :commands (+switch-or-make-project)
-  :hook
-  (on-init-ui . projectile-mode)
-  :custom
-  (projectile-project-search-path (list nox/projects-directory)))
-
-(use-package consult-projectile
-  :after (:all projectile consult))
-
-(defun nox/create-git-repo (project-name)
-  "Create a new Git repository under `nox/projects-directory` named PROJECT-NAME.
-        If the directory already exists, signal a user error."
-  (interactive "sProject name: ")
-  (let* ((root   (file-name-as-directory
-                  (expand-file-name nox/projects-directory)))
-         (target (expand-file-name project-name root)))
-    (when (file-exists-p target)
-      (user-error "Directory %S already exists" target))
-    ;; Create the directory tree
-    (make-directory target t)
-    ;; Run git init
-    (let ((default-directory target))
-      (unless (= 0 (call-process "git" nil "*git-init*" t "init"))
-        (delete-directory target t)
-        (error "git init failed; removed %S" target)))
-    (message "Initialized empty Git repository in %S" target)))
-
-(defun nox/create-projectile-project (project-name)
-  "Create a new Projectile project under `nox/projects-directory`.
-      Makes a fresh directory named PROJECT-NAME and an empty `.projectile` file in it."
-  (interactive "sProject name: ")
-  (let* ((root   (file-name-as-directory
-                  (expand-file-name nox/projects-directory)))
-         (target (expand-file-name project-name root)))
-    (when (file-exists-p target)
-      (user-error "Directory %S already exists" target))
-    ;; create directory tree
-    (make-directory target t)
-    ;; create an empty .projectile file
-    (let ((proj-file (expand-file-name ".projectile" target)))
-      (with-temp-file proj-file
-        ;; insert default ignores or whatever you like, e.g.:
-        ;; (insert "# Add patterns to include/ignore in this project\n")
-        ))
-    (message "Created Projectile project in %S" target)))
-
-(defun nox/create-project (project-name)
-  "Interactively create a new project called PROJECT-NAME."
-  (interactive "sProject name: ")
-  (require 'consult)
-  (let* ((choices (list
-                   (cons "Create a new git repo on Github" :remote)
-                   (cons "Create a new git repo locally" :local)
-                   (cons "Create only a project dir" :project)))
-         (prompt   "What would you like to do? ")
-         (answer   (consult--read choices
-                                  :prompt prompt
-                                  :lookup #'consult--lookup-cdr
-                                  :sort nil)))
-    (pcase answer
-      (:remote  (consult-gh-repo-create project-name))
-      (:local   (nox/create-git-repo project-name))
-      (:project (nox/create-projectile-project project-name)))))
-
-(defun +switch-or-make-project (&optional arg)
-  "Switch to a project from known projects, or create a new one with `consult-gh-repo-create`."
-  (interactive "P")
-  (let ((projects (projectile-relevant-known-projects)))
-    (if projects
-        (projectile-completing-read
-         "Switch to project: " projects
-         :action (lambda (project)
-                   (if (member project projects)
-                       ;; Existing project → switch to it
-                       (projectile-switch-project-by-name project arg)
-                     ;; New project → create new project and switch to it
-                     (progn
-                       (nox/create-project project)
-                       (projectile-discover-projects-in-search-path)
-                       (projectile-switch-project-by-name project arg)))))
-      (user-error "There are no known projects"))))
-
-(use-package rainbow-delimiters
-  :hook
-  (prog-mode . rainbow-delimiters-mode)
-  :config
-  (setq rainbow-delimiters-max-face-count 5))
-
-(use-package rainbow-mode
-  :hook
-  (help-mode . rainbow-mode)
-  (prog-mode . rainbow-mode))
-
-(use-package hl-todo
-  :hook (prog-mode. hl-todo-mode))
-
-(use-package treesit-auto
-  :custom
-  (treesit-auto-install 'prompt)
-  :hook (on-first-input . global-treesit-auto-mode)
-  :config
-  (treesit-auto-add-to-auto-mode-alist 'all))
-
 (use-package indent-bars
   :custom
   (indent-bars-treesit-support t)
@@ -2635,17 +2540,263 @@ controls the state:
 (use-package systemd)
 
 (use-package python-mode
-  :ensure nil
   :mode "\\.py\\'"
+  :custom
+  (python-indent-offset 4)
+  (python-shell-interpreter "python3")
   :config
   (add-to-list
    'eglot-server-programs
-   '(python-ts-mode . ("rass" "python")))
+   '((python-ts-mode python-mode) . ("rass" "python")))
 
   (nox/mason-ensure 'python-ts-mode '("ruff" "ty"))
+
+  (add-to-list 'compile-multi-config
+               `(python-mode
+                 ("python:interpreter" "python3" (buffer-file-name))))
+
+  (add-to-list 'compile-multi-config
+               `(python-mode
+                 ("python:uv script" "uv" "run" "--script" (buffer-file-name)))))
+
+(use-package kotlin-mode
+  :config
+  (add-to-list
+   'eglot-server-programs
+   '((kotlin-ts-mode kotlin-mode) . ("kotlin-language-server"))))
+
+(use-package kotlin-ts-mode
+  :after kotlin-mode
+  :mode "\\.kt\\'"
+  :config
+  (nox/mason-ensure 'kotlin-ts-mode '("ktlint" "kotlin-language-server"))
+  (add-to-list 'treesit-language-source-alist '(kotlin . ("https://github.com/fwcd/tree-sitter-kotlin"))))
+
+(use-package ligature
+  :hook (on-first-input . global-ligature-mode)
+  :config
+  ;; Enable the "www" ligature in every possible major mode
+  (ligature-set-ligatures 't '("www"))
+  ;; Enable traditional ligature support in eww-mode, if the
+  ;; `variable-pitch' face supports it
+  (ligature-set-ligatures 'eww-mode '("ff" "fi" "ffi"))
+  ;; Enable all Cascadia Code ligatures in programming modes
+  (ligature-set-ligatures '(prog-mode org-mode)
+                          '("|||>" "<|||" "<==>" "<!--" "####" "~~>" "***" "||=" "||>"
+                            ":::" "::=" "=:=" "===" "==>" "=!=" "=>>" "=<<" "=/=" "!=="
+                            "!!." ">=>" ">>=" ">>>" ">>-" ">->" "->>" "-->" "---" "-<<"
+                            "<~~" "<~>" "<*>" "<||" "<|>" "<$>" "<==" "<=>" "<=<" "<->"
+                            "..." "+++" "/==" "///" "_|_" "www" "&&" "^=" "~~" "~@"
+                            "~=" "~>" "~-" "**" "*>" "*/" "||" "|}" "|]" "=>" "!="
+                            "!!" ">:" "\\\\" "://" "..<" "</>" "###" "#_(" "<<<" "<+>"
+                            ">=" ">>" ">-" "-~" "-|" "->" "--" "-<" "<~" "<*" "<|" "<:"
+                            "<$" "<=" "<>" "<-" "<<" "<+" "</" "#{" "#[" "#:" "#=" "#!"
+                            "##" "#(" "#?" "#_" "%%" ".=" ".-" ".." ".?" "+>" "++" "?:"
+                            "?=" "?." "??" ";;" "/*" "/=" "/>" "//" "__" "~~" "(*" "*)"
+                            "<--" "<-<" "<<=" "<<-")))
+
+(use-package eglot
+  :ensure nil
+  :hook
+  (prog-mode . eglot-ensure)
+  (eglot-managed-mode . nox/eglot-remove-signature-eldoc)
+  :commands
+  (eglot-ensure
+   eglot-rename
+   eglot-format-buffer)
+  :bind
+  ([remap eldoc-doc-buffer] . eldoc-box-help-at-point)
+  :config
+  ;; ensure rass is installed
+  (nox/mason-ensure '("rass"))
+
+  ;; inly hint face
+  (set-face-attribute 'eglot-inlay-hint-face nil
+                      :inherit 'font-lock-comment-face
+                      :italic t))
+
+(defun nox/eglot-remove-signature-eldoc ()
+  (setq-local eldoc-documentation-functions
+              (remove #'eglot-signature-eldoc-function eldoc-documentation-functions)))
+
+(use-package markdown-mode
+  :init
+  ;; hover signature help face
+  (set-face-attribute 'markdown-code-face nil
+                      :background 'unspecified))
+
+(use-package eldoc-box
+  :commands eldoc-box-help-at-point
+  :config
+  (nox/set-eldoc-box-colors)
+  (add-hook! nox/after-theme-change #'nox/set-eldoc-box-colors))
+
+(use-package sideline-flymake
+  :hook
+  (flymake-mode . sideline-mode)
+  (sideline-mode . nox/sideline-remove-flymake-eldoc)
   :custom
-  (python-indent-offset 4)
-  (python-shell-interpreter "python3"))
+  (sideline-flymake-display-mode 'line)
+  (sideline-backends-right '(sideline-flymake)))
+
+(defun nox/set-eldoc-box-colors ()
+  (set-face-attribute 'eldoc-box-border nil
+                      :background 'unspecified
+                      :inherit 'corfu-border)
+
+  (set-face-attribute 'eldoc-box-markdown-separator nil
+                      :foreground (doom-color 'bg-alt2)))
+
+(defun nox/sideline-remove-flymake-eldoc ()
+  (setq-local eldoc-documentation-functions (remove #'flymake-eldoc-function eldoc-documentation-functions)))
+
+(use-package tabspaces
+  :hook (on-first-input . nox/tabspaces-setup)
+  :commands (tabspaces-mode
+             tabspaces-switch-or-create-workspace
+             tabspaces-ibuffer-switch-buffer-and-tab
+             tabspaces-open-or-create-project-and-workspace)
+  :custom
+  (tabspaces-session-project-session-store (expand-file-name "sessions" minimal-emacs-user-directory))
+  (tabspaces-session nil)
+  (tabspaces-use-filtered-buffers-as-default t)
+  (tabspaces-include-buffers '("*scratch*"))
+  (tabspaces-fully-resolve-paths t)
+  (tab-bar-new-tab-choice "*scratch*")
+  (tabspaces-echo-area-enable t)
+  (tabspaces-echo-area-idle-delay 60.0)
+  (tabspaces-exclude-buffers '("*Messages*" "*Compile-Log*"))
+  (tabspaces-echo-area-format-function #'nox/workspace-list-formatter)
+  :config
+  ;; update find file command
+  (setq tabspaces-project-switch-commands
+    (remove '(project-find-file "Find file") tabspaces-project-switch-commands))
+  (add-to-list 'tabspaces-project-switch-commands '(consult-project-extra-find "Find file" "f"))
+  (add-to-list 'tabspaces-project-switch-commands '(tabspaces-kill-buffers-close-workspace "Quit Workspace" "q"))
+
+  ;; auto restore only projects
+  (add-hook! tabspaces-mode (setq tabspaces-session-auto-restore t))
+
+  ;; show tabs on switch
+  (advice-add 'tab-previous :after #'tabspaces-show-workspaces)
+  (advice-add 'tab-next     :after #'tabspaces-show-workspaces))
+
+(defun nox/workspace-list-formatter ()
+  "Return all tabs as a numbered string, highlighting the current one."
+  (when (> (length (tab-bar-tabs)) 1)
+    (let* ((tabs (tab-bar-tabs))
+           (current-tab (tab-bar--current-tab-find tabs)))
+      (mapconcat
+       (lambda (tab)
+         (let* ((i (1+ (cl-position tab tabs)))
+                (name (alist-get 'name tab))
+                (label (format "[%d] %s" i name)))
+           (if (eq tab current-tab)
+               (propertize
+                label
+                'face `(:weight bold
+                                :foreground ,(doom-color 'orange)))
+             label)))
+       tabs
+       " "))))
+
+(defun nox/tabspaces-setup ()
+  "Set up tabspace at startup."
+  (tabspaces-mode)
+  (tab-bar-mode -1)
+  (progn
+    (tab-bar-rename-tab "Home")
+    (when (get-buffer "*Messages*")
+      (set-frame-parameter nil
+                           'buffer-list
+                           (cons (get-buffer "*Messages*")
+                                 (frame-parameter nil 'buffer-list))))
+    (when (get-buffer "*splash*")
+      (set-frame-parameter nil
+                           'buffer-list
+                           (cons (get-buffer "*splash*")
+                                 (frame-parameter nil 'buffer-list))))))
+
+(with-eval-after-load 'consult
+  ;; hide full buffer list (still available with "b" prefix)
+  (plist-put consult-source-buffer :hidden t)
+  (plist-put consult-source-buffer :default nil)
+  ;; set consult-workspace buffer list
+  (defvar consult--source-workspace
+    (list :name     "Workspace Buffers"
+          :narrow   ?w
+          :history  'buffer-name-history
+          :category 'buffer
+          :state    #'consult--buffer-state
+          :default  t
+          :items    (lambda () (consult--buffer-query
+                                :predicate #'tabspaces--local-buffer-p
+                                :sort 'visibility
+                                :as #'buffer-name)))
+
+    "Set workspace buffer list for consult-buffer.")
+  (add-to-list 'consult-buffer-sources 'consult--source-workspace))
+
+(defun nox/tabspaces-ibuffer-group ()
+  (setq ibuffer-filter-groups
+        (mapcar (lambda (tab)
+                  (let ((tab-index (tab-bar--tab-index-by-name tab)))
+                    (cons tab
+                          `((predicate . (member (buffer-name)
+                                                 (mapcar #'buffer-name
+                                                         (tabspaces--buffer-list nil ,tab-index))))))))
+                (tabspaces--list-tabspaces)))
+  (ibuffer-update nil))
+
+(add-hook! ibuffer #'nox/tabspaces-ibuffer-group)
+
+(use-package rainbow-delimiters
+  :hook
+  (prog-mode . rainbow-delimiters-mode)
+  :config
+  (setq rainbow-delimiters-max-face-count 5))
+
+(use-package rainbow-mode
+  :hook
+  (help-mode . rainbow-mode)
+  (prog-mode . rainbow-mode))
+
+(use-package hl-todo
+  :hook (prog-mode. hl-todo-mode))
+
+(use-package yasnippet
+  :hook
+  (on-first-file . yas-global-mode)
+  (eglot-managed-mode . nox/update-capf-eglot))
+
+(use-package snippy
+  :ensure (:host github :repo "MiniApollo/snippy" :branch "main" :rev :newest)
+  :hook (yas-global-mode . global-snippy-minor-mode)
+  :custom
+  (snippy-global-languages '("global"))
+  :config
+  (snippy-install-or-update-snippets)
+  (add-hook 'completion-at-point-functions #'snippy-capf))
+
+(use-package yasnippet-capf
+  :after cape
+  :config
+  (add-hook 'completion-at-point-functions #'yasnippet-capf))
+
+(defun cape-eglot-yasnippet ()
+  (cape-wrap-super #'eglot-completion-at-point #'yasnippet-capf #'snippy-capf))
+
+(defun nox/update-capf-eglot ()
+  "Adds snippets completion to eglot."
+  (remove-hook! 'completion-at-point-functions :local #'eglot-completion-at-point)
+  (add-hook! 'completion-at-point-functions :local #'cape-eglot-yasnippet))
+
+(use-package treesit-auto
+  :custom
+  (treesit-auto-install 'prompt)
+  :hook (on-first-input . global-treesit-auto-mode)
+  :config
+  (treesit-auto-add-to-auto-mode-alist 'all))
 
 (use-package eshell
   :commands eshell
