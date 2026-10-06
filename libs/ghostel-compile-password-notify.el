@@ -1,20 +1,26 @@
 ;;; ghostel-compile-password-notify.el --- Notify on sudo prompts in ghostel-compile -*- lexical-binding: t; -*-
 
 ;; `compilation-filter-hook' won't fire here: while `ghostel-compile'
-;; is running, the buffer is a live `ghostel-mode' terminal (native
-;; PTY, VT-parsed), not comint-derived. It only becomes
-;; `compilation-mode'-derived after the process exits, by which point
-;; there's nothing left to catch. So this uses a timer instead,
-;; tracking a manual "last checked" position the same way
-;; `compilation-filter-start' would.
+;; is running, the buffer is a live `ghostel-mode' terminal, not
+;; comint-derived.  Instead of polling the buffer text (which may not
+;; be rendered while the buffer is hidden), this wraps the process
+;; filter and inspects raw PTY output as it arrives.  That works the
+;; same for visible and background buffers.
 
 (require 'notifications)
 
 (defcustom +config/compile-watch-ntfy-url nil
   "Full ntfy topic URL to POST to, e.g. \"https://ntfy.sh/my-topic\"
-or your self-hosted instance. Set to nil to skip ntfy entirely."
+or your self-hosted instance.  Set to nil to skip ntfy entirely."
   :type '(choice (const :tag "Disabled" nil) string)
   :group 'ghostel)
+
+(defconst +config/--compile-watch-regexp
+  "\\[sudo\\] password for \\|[\n\r]Password: ?\\|\\`Password: ?"
+  "Regexp matching a sudo/password prompt in raw output.")
+
+(defconst +config/--compile-watch-tail-length 64
+  "Chars of previous output kept so a prompt split across chunks still matches.")
 
 (defun +config/--compile-watch-ntfy (message)
   "Async POST MESSAGE to `+config/compile-watch-ntfy-url' via curl."
@@ -26,60 +32,56 @@ or your self-hosted instance. Set to nil to skip ntfy entirely."
                    "-d" message
                    +config/compile-watch-ntfy-url)))
 
-(defvar-local +config/--compile-watch-pos nil
-  "Buffer position already scanned for a sudo prompt.")
+(defun +config/--compile-watch-notify (buf)
+  (notifications-notify
+   :title "Compile waiting on sudo"
+   :body (format "Enter your password in %s buffer." (buffer-name buf)))
+  (+config/--compile-watch-ntfy
+   (format "Compile waiting on sudo password (%s)" (buffer-name buf))))
 
-(defvar-local +config/--compile-watch-timer nil)
+(defun +config/--compile-watch-make-filter (buf)
+  "Return a :before filter function that watches output for BUF."
+  (let ((tail ""))
+    (lambda (_proc output)
+      (condition-case err
+          (let ((text (concat tail output)))
+            (if (string-match-p +config/--compile-watch-regexp text)
+                (progn
+                  ;; Drop the tail so the same prompt can't fire twice.
+                  (setq tail "")
+                  (+config/--compile-watch-notify buf))
+              (setq tail (substring text
+                                    (max 0 (- (length text)
+                                              +config/--compile-watch-tail-length))))))
+        (error (message "compile-watch: %S" err))))))
 
-(defun +config/compile-watch-for-sudo ()
-  "Detect a sudo password prompt in ghostel-compile output and notify."
-  (let* ((start (min (or +config/--compile-watch-pos (point-min)) (point-max)))
-         (output (buffer-substring-no-properties start (point-max))))
-    (setq +config/--compile-watch-pos (point-max))
-    (when (string-match-p "\\[sudo\\] password for\\|^Password:" output)
-      (notifications-notify
-       :title "Compile waiting on sudo"
-       :body "Enter your password in the compilation buffer.")
-      (+config/--compile-watch-ntfy "Compile waiting on sudo password"))))
+(defun +config/--compile-watch-install (buf proc)
+  (unless (process-get proc 'compile-watch-installed)
+    (process-put proc 'compile-watch-installed t)
+    (add-function :before (process-filter proc)
+                  (+config/--compile-watch-make-filter buf))))
 
 ;;;###autoload
-(defun +config/compile-watch-start ()
-  "Start watching the current ghostel-compile buffer for a sudo prompt.
-Call right after starting `ghostel-compile'."
+(defun +config/compile-watch-start (&optional buf attempts)
+  "Watch BUF (default: current buffer) for a sudo prompt.
+Retries briefly if the buffer's process hasn't started yet."
   (interactive)
-  (unless (derived-mode-p 'ghostel-mode)
-    (user-error "Not a live ghostel buffer"))
-  (when +config/--compile-watch-timer
-    (cancel-timer +config/--compile-watch-timer))
-  (setq +config/--compile-watch-pos (point-min))
-  (setq +config/--compile-watch-timer
-        (run-with-timer 0 0.3 #'+config/--compile-watch-tick (current-buffer))))
-
-(defun +config/--compile-watch-tick (buf)
-  (if (not (buffer-live-p buf))
-      (+config/--compile-watch-stop buf)
-    (with-current-buffer buf
-      ;; ghostel-compile swaps the major mode once the command finishes --
-      ;; that's our signal to stop.
-      (if (not (derived-mode-p 'ghostel-mode))
-          (+config/--compile-watch-stop buf)
-        (+config/compile-watch-for-sudo)))))
-
-(defun +config/--compile-watch-stop (buf)
-  (when (buffer-live-p buf)
-    (with-current-buffer buf
-      (when +config/--compile-watch-timer
-        (cancel-timer +config/--compile-watch-timer)
-        (setq +config/--compile-watch-timer nil)))))
+  (let* ((buf (or buf (current-buffer)))
+         (attempts (or attempts 20)))
+    (when (buffer-live-p buf)
+      (let ((proc (get-buffer-process buf)))
+        (cond
+         (proc (+config/--compile-watch-install buf proc))
+         ((> attempts 0)
+          (run-with-timer 0.1 nil #'+config/compile-watch-start
+                          buf (1- attempts)))
+         (t (message "compile-watch: no process found for %s"
+                     (buffer-name buf))))))))
 
 (defun +config/--compile-watch-mode-hook ()
-  "Start the watcher when `ghostel-compile-toggle-mode' turns on in this buffer.
-Unlike advising `ghostel-compile' itself, this runs with `current-buffer'
-guaranteed to be the new compile buffer -- `ghostel-compile' does not
-reliably leave the new buffer selected on return (same issue as
-`ghostel'/`ghostel-project')."
+  "Start the watcher when `ghostel-compile-toggle-mode' turns on in this buffer."
   (when (bound-and-true-p ghostel-compile-toggle-mode)
-    (+config/compile-watch-start)))
+    (+config/compile-watch-start (current-buffer))))
 
 (add-hook 'ghostel-compile-toggle-mode-hook #'+config/--compile-watch-mode-hook)
 

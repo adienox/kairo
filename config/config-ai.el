@@ -52,7 +52,8 @@
   :after gptel)
 
 (use-package gptel-magit
-  :after gptel magit)
+  :ensure (:host github :repo "roife/gptel-magit")
+  :hook (magit-mode . gptel-magit-install))
 
 (use-package gptel-openrouter
   :ensure (:host github :repo "bharadswami/gptel-openrouter")

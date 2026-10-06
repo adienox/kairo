@@ -122,7 +122,7 @@ Otherwise install immediately."
   (eglot-documentation-renderer 'markdown-ts-view-mode)
   :config
   (+config/mason-ensure! '("rassumfrassum" "codebook"))
-
+  (add-to-list 'trusted-content +config/projects-directory)
   (set-face-attribute 'eglot-inlay-hint-face nil
                       :inherit 'font-lock-comment-face
                       :italic t))

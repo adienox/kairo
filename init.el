@@ -19,7 +19,10 @@
 (add-to-list 'load-path (expand-file-name "config/" +config/emacs-directory))
 (add-to-list 'load-path (expand-file-name "config/langs/" +config/emacs-directory))
 
+;; setting and loading customs.el
 (setq custom-file (expand-file-name "customs.el" user-emacs-directory))
+(when (file-exists-p custom-file)
+  (load custom-file 'noerror))
 
 ;; Using `fundamental-mode' for the initial buffer to avoid unnecessary
 ;; startup overhead.
@@ -53,8 +56,5 @@
 (require 'lang-flutter)
 (require 'lang-python)
 (require 'lang-c)
-
-(when (file-exists-p custom-file)
-  (load custom-file 'noerror))
 
 ;;; init.el ends here

@@ -99,8 +99,9 @@
   ;; highlight parent and directory preview as well
   (dirvish-directory-view-mode . diredfl-mode)
   :config
-  (add-hook! (on-init-ui +config/after-theme-change) (load-file (expand-file-name "themes/dank-diredfl.el" user-emacs-directory)))
   (set-face-attribute 'diredfl-dir-name nil :bold t))
+
+(add-hook! (on-init-ui +config/after-theme-change) (load-file (expand-file-name "themes/dank-diredfl.el" user-emacs-directory)))
 
 (use-package dired-open
   :after dired

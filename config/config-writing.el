@@ -253,6 +253,18 @@ does, and steps aside for everything else."
   :custom
   (olivetti-body-width 110))
 
+(defun +config/denote-attach-setup ()
+  (require 'org-attach)
+  (setq-local org-attach-preferred-new-method 'dir)
+  (org-update-all-dblocks)
+  (add-hook 'completion-at-point-functions #'+config/denote-capf nil t)
+  (setq-local org-global-properties
+              `(("DIR" . ,(expand-file-name
+                           (denote-retrieve-filename-identifier (buffer-file-name))
+                           org-attach-id-dir)))))
+
+(add-to-list 'safe-local-eval-forms '(+config/denote-attach-setup))
+
 (provide 'config-writing)
 
 ;;; config-writing.el ends here
