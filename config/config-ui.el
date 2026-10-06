@@ -107,7 +107,8 @@
  (expand-file-name "dank-emacs-theme.el" +config/themes-dir)
  '(change)
  (lambda (_event)
-   (load-theme 'dank-emacs t)))
+   (load-theme 'dank-emacs t)
+   (run-hooks '+config/after-theme-change-hook)))
 
 (defun +config/set-diff-faces ()
   (set-face-attribute 'diff-added nil
@@ -251,6 +252,22 @@ Useful for forcing the tags to re-render, e.g. after changing
                             "todo))" "fixme))"
                             "[TRACE]" "[DEBUG]" "[INFO]" "[WARN]" "[ERROR]" "[FATAL]"
                             "[TODO]" "[FIXME]" "[NOTE]" "[HACK]" "[MARK]")))
+
+(defvar +config/modeline-less-frame-names '("emacs-float" "emacs-capture" "emacs-agenda")
+  "Frame names whose windows should have no modeline.")
+
+(defun +config/modeline-less-frame-p (frame)
+  "Return non-nil if FRAME's name is in `+config/modeline-less-frame-names'."
+  (member (frame-parameter frame 'name) +config/modeline-less-frame-names))
+
+(defun +config/update-modeline-visibility (&optional frame)
+  "Hide or restore the modeline in FRAME's windows based on its name."
+  (dolist (win (window-list frame))
+    (set-window-parameter
+     win 'mode-line-format
+     (if (+config/modeline-less-frame-p (window-frame win)) 'none nil))))
+
+(add-hook! (after-make-frame-functions window-configuration-change) #'+config/update-modeline-visibility)
 
 (provide 'config-ui)
 
