@@ -1,0 +1,122 @@
+;;; svg-tags.el --- Svg Tag definitions -*- lexical-binding: t; -*-
+
+(defconst date-re "[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}")
+(defconst time-re "[0-9]\\{2\\}:[0-9]\\{2\\}")
+(defconst day-re "[A-Za-z]\\{3\\}")
+(defconst day-time-re (format "\\(%s\\)? ?\\(%s\\)?" day-re time-re))
+
+(defun svg-progress-percent (value)
+  (save-match-data
+    (svg-image (svg-lib-concat
+                (svg-lib-progress-bar  (/ (string-to-number value) 100.0)
+                                       nil :margin 0 :stroke 2 :radius 3 :padding 2 :width 11)
+                (svg-lib-tag (concat value "%")
+                             nil :stroke 0 :margin 0)) :ascent 'center)))
+
+(defun svg-progress-count (value)
+  (save-match-data
+    (let* ((seq (split-string value "/"))
+           (count (if (stringp (car seq))
+                      (float (string-to-number (car seq)))
+                    0))
+           (total (if (stringp (cadr seq))
+                      (float (string-to-number (cadr seq)))
+                    1000)))
+      (svg-image (svg-lib-concat
+                  (svg-lib-progress-bar (/ count total) nil
+                                        :margin 0 :stroke 2 :radius 3 :padding 2 :width 11)
+                  (svg-lib-tag value nil
+                               :stroke 0 :margin 0)) :ascent 'center))))
+
+(require 'cl-lib)
+
+(defun +config/org-svg-todo-tags ()
+  "Generate SVG tag specifications for all Org TODO keywords."
+  (cl-loop
+   for sequence in org-todo-keywords
+   for separator = (cl-position "|" sequence :test #'equal)
+   for keywords = (cdr sequence)
+   append
+   (cl-loop
+    for keyword in keywords
+    unless (equal keyword "|")
+    collect
+    (let* ((keyword (substring-no-properties keyword))
+           (done (and separator
+                      (>= (cl-position keyword keywords
+                                       :key #'substring-no-properties
+                                       :test #'equal)
+                          separator))))
+      (cons keyword
+            `((lambda (_tag)
+                (svg-tag-make ,keyword
+                              :face ',(if done 'org-done 'org-todo)
+                              :inverse ,(not done)
+                              :margin 0))))))))
+
+(setq svg-tag-tags
+      `(
+        ;; Org tags
+        (" \\(:.*:\\)" . ((lambda (tag) (svg-tag-make (replace-regexp-in-string ":" " " tag)))))
+
+        (":\\([A-Za-z0-9]+[ \-]\\)" . ((lambda (tag) tag)))
+
+        ;; Task priority
+        ("\\[#[A-Z]\\]" . ( (lambda (tag)
+                              (svg-tag-make tag :face 'org-priority
+                                            :beg 2 :end -1 :margin 0))))
+
+        ;; Citation of the form [cite:@Knuth:1984]
+        ("\\(\\[cite:@[A-Za-z]+:\\)" . ((lambda (tag)
+                                          (svg-tag-make tag
+                                                        :inverse t
+                                                        :beg 7 :end -1
+                                                        :crop-right t))))
+        ("\\[cite:@[A-Za-z]+:\\([0-9]+\\]\\)" . ((lambda (tag)
+                                                   (svg-tag-make tag
+                                                                 :end -1
+                                                                 :crop-left t))))
+
+
+        ;; Active date (with or without day name, with or without time)
+        (,(format "\\(<%s>\\)" date-re) .
+         ((lambda (tag)
+            (svg-tag-make tag :beg 1 :end -1 :margin 0))))
+        (,(format "\\(<%s \\)%s>" date-re day-time-re) .
+         ((lambda (tag)
+            (svg-tag-make tag :beg 1 :inverse nil :crop-right t :margin 0))))
+        (,(format "<%s \\(%s>\\)" date-re day-time-re) .
+         ((lambda (tag)
+            (svg-tag-make tag :end -1 :inverse t :crop-left t :margin 0))))
+
+        ;; Inactive date  (with or without day name, with or without time)
+        (,(format "\\(\\[%s\\]\\)" date-re) .
+         ((lambda (tag)
+            (svg-tag-make tag :beg 1 :end -1 :margin 0 :face 'org-date))))
+        (,(format "\\(\\[%s \\)%s\\]" date-re day-time-re) .
+         ((lambda (tag)
+            (svg-tag-make tag :beg 1 :inverse nil :crop-right t :margin 0 :face 'org-date))))
+        (,(format "\\[%s \\(%s\\]\\)" date-re day-time-re) .
+         ((lambda (tag)
+            (svg-tag-make tag :end -1 :inverse t :crop-left t :margin 0 :face 'org-date))))
+
+        ;; ;; Progress
+        ("\\(\\[[0-9]\\{1,3\\}%\\]\\)" . ((lambda (tag)
+                                            (svg-progress-percent (substring tag 1 -2)))))
+        ("\\(\\[[0-9]+/[0-9]+\\]\\)" . ((lambda (tag)
+                                          (svg-progress-count (substring tag 1 -1)))))
+        ))
+
+(setq svg-tag-tags
+      (append
+       (cl-remove-if
+        (lambda (entry)
+          (member (car entry)
+                  (mapcar #'car (+config/org-svg-todo-tags))))
+        svg-tag-tags)
+       (+config/org-svg-todo-tags)))
+
+
+(provide 'svg-tags)
+
+;;; svg-tags.el ends here

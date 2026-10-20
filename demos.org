@@ -1,0 +1,197 @@
+* add-hook!
+
+#+BEGIN_SRC elisp
+;; With only one hook and one function, this is identical to `add-hook'. In that
+;; case, use that instead.
+(add-hook! 'some-mode-hook #'enable-something)
+
+;; Adding many-to-many functions to hooks
+(add-hook! some-mode #'enable-something #'and-another)
+(add-hook! some-mode '(enable-something and-another))
+(add-hook! '(one-mode-hook second-mode-hook) #'enable-something)
+(add-hook! (one-mode second-mode) #'enable-something)
+
+;; Appending and local hooks
+(add-hook! (one-mode second-mode) :append #'enable-something)
+(add-hook! (one-mode second-mode) :local #'enable-something)
+
+;; With arbitrary forms
+(add-hook! (one-mode second-mode) (setq v 5) (setq a 2))
+(add-hook! (one-mode second-mode) :append :local (setq v 5) (setq a 2))
+
+;; Inline named hook functions
+(add-hook! '(one-mode-hook second-mode-hook)
+  (defun do-something ()
+    ...)
+  (defun do-another-thing ()
+    ...))
+#+END_SRC
+* remove-hook!
+
+#+BEGIN_SRC elisp
+;; With only one hook and one function, this is identical to `remove-hook'. In
+;; that case, use that instead.
+(remove-hook! 'some-mode-hook #'enable-something)
+
+;; Removing N functions from M hooks
+(remove-hook! some-mode #'enable-something #'and-another)
+(remove-hook! some-mode #'(enable-something and-another))
+(remove-hook! '(one-mode-hook second-mode-hook) #'enable-something)
+(remove-hook! (one-mode second-mode) #'enable-something)
+
+;; Removing buffer-local hooks
+(remove-hook! (one-mode second-mode) :local #'enable-something)
+
+;; Removing arbitrary forms (must be exactly the same as the definition)
+(remove-hook! (one-mode second-mode) (setq v 5) (setq a 2))
+#+END_SRC
+* setq-hook!
+
+#+BEGIN_SRC elisp
+;; Set multiple variables after a hook
+(setq-hook! 'markdown-mode-hook
+  line-spacing 2
+  fill-column 80)
+
+;; Set variables after multiple hooks
+(setq-hook! '(eshell-mode-hook term-mode-hook)
+  hscroll-margin 0)
+#+END_SRC
+
+* unsetq-hook!
+
+#+begin_src elisp
+(unsetq-hook! 'markdown-mode-hook line-spacing)
+
+;; Removes the following variable hook
+(setq-hook! 'markdown-mode-hook line-spacing 2)
+
+;; Removing N variables from M hooks
+(unsetq-hook! some-mode enable-something and-another)
+(unsetq-hook! some-mode (enable-something and-another))
+(unsetq-hook! '(one-mode-hook second-mode-hook) enable-something)
+(unsetq-hook! (one-mode second-mode) enable-something)
+#+end_src
+
+* add-transient-hook!
+
+#+begin_src elisp
+;; Run something once after Emacs finishes initializing
+(add-transient-hook! 'after-init-hook
+  (message "Emacs is ready! Startup took %s" (emacs-init-time)))
+
+;; One-time initialization on first buffer save
+(add-transient-hook! 'before-save-hook
+  (my/setup-backup-directory)
+  (message "Backup directory initialized"))
+
+;; Multiple forms on first window setup
+(add-transient-hook! 'window-setup-hook
+  (set-frame-size (selected-frame) 180 50)
+  (set-frame-position (selected-frame) 100 100)
+  (my/restore-session))
+
+;; Lazy-load a package the first time org-agenda is called
+(add-transient-hook! #'org-agenda
+  (require 'org-super-agenda)
+  (org-super-agenda-mode +1))
+
+;; Defer heavy mode setup until lsp-mode is first called
+(add-transient-hook! #'lsp-mode
+  (require 'lsp-ui)
+  (require 'lsp-treemacs)
+  (lsp-ui-mode +1)
+  (lsp-treemacs-sync-mode +1))
+
+;; Run *after* org-mode is entered for the very first time
+(add-transient-hook! :after org-mode
+  (message "org-mode ran for the very first time"))
+#+end_src
+
+* defadvice!
+
+#+begin_src emacs-lisp
+;; :before — run before the target function
+(defadvice! my/before-save-advice (&rest _)
+  "Log a message before every save."
+  :before #'save-buffer
+  (message "Saving buffer: %s" (buffer-name)))
+
+;; :after — run after the target function
+(defadvice! my/after-revert-advice (&rest _)
+  "Notify after a buffer is reverted."
+  :after #'revert-buffer
+  (message "Buffer reverted: %s" (buffer-name)))
+
+;; :override — completely replace the target function
+(defadvice! my/silent-bell (&rest _)
+  "Disable the audible/visible bell entirely."
+  :override #'ring-bell-function
+  nil)
+
+;; :around — wrap the target, calling it manually via orig-fn
+(defadvice! my/timed-org-agenda (orig-fn &rest args)
+  "Measure how long org-agenda takes to open."
+  :around #'org-agenda
+  (let ((start (current-time)))
+    (apply orig-fn args)
+    (message "org-agenda opened in %.2fs"
+             (float-time (time-since start)))))
+
+;; Advise a list of functions with the same advice via ensure-list
+(defadvice! my/read-only-flash (&rest _)
+  "Flash a message when attempting to edit a read-only buffer."
+  :before '(insert delete-char kill-region)
+  (when buffer-read-only
+    (message "Buffer is read-only!")))
+
+;; Multiple WHERE/PLACE pairs — same advice attached to different
+;; functions at different positions
+(defadvice! my/auto-save-on-focus-change (&rest _)
+  "Save all buffers when Emacs loses focus."
+  :before #'handle-switch-frame
+  :after  #'handle-focus-out
+  (save-some-buffers t))
+
+;; :filter-args — transform arguments before they reach the function
+;; Must return a list (the new arglist)
+(defadvice! my/downcase-find-file (args)
+  "Force find-file path to lowercase."
+  :filter-args #'find-file
+  (list (downcase (car args))))
+
+;; :filter-return — transform the return value of the function
+(defadvice! my/ensure-list-result (result)
+  "Wrap scalar return values in a list."
+  :filter-return #'my/some-function
+  (ensure-list result))
+#+end_src
+
+* undefadvice!
+
+#+begin_src emacs-lisp
+;; Undo a basic :before advice
+(undefadvice! my/before-save-advice (&rest _)
+  :before #'save-buffer)
+
+;; Undo a :after advice
+(undefadvice! my/after-revert-advice (&rest _)
+  :after #'revert-buffer)
+
+;; Undo an :override
+(undefadvice! my/silent-bell (&rest _)
+  :override #'ring-bell-function)
+
+;; Undo an :around advice
+(undefadvice! my/timed-org-agenda (orig-fn &rest args)
+  :around #'org-agenda)
+
+;; Undo advice attached to a list of functions
+(undefadvice! my/read-only-flash (&rest _)
+  :before '(insert delete-char kill-region))
+
+;; Undo advice attached at multiple WHERE/PLACE pairs
+(undefadvice! my/auto-save-on-focus-change (&rest _)
+  :before #'handle-switch-frame
+  :after  #'handle-focus-out)
+#+end_src

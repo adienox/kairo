@@ -1,0 +1,2 @@
+alias cls clear 1
+alias e 'find-file $1'
